@@ -1,0 +1,5 @@
+-r requirements.txt
+datasets
+accelerate
+jiwer
+rouge-score
