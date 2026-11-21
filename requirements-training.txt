@@ -1,5 +1,8 @@
 -r requirements.txt
 datasets
 accelerate
+peft>=0.18,<0.19
 jiwer
 rouge-score
+openpyxl
+ijson
