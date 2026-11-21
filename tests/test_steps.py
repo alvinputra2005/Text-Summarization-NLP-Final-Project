@@ -1,7 +1,11 @@
 import unittest
+from unittest.mock import Mock, patch
+
+import torch
+from transformers import BatchEncoding
 
 from src.segmentation import Segment, group_segments
-from src.summarization import summary_preserves_details
+from src.summarization import generate_mbart, model_reference, summary_preserves_details
 
 
 class SegmentationTests(unittest.TestCase):
@@ -23,6 +27,30 @@ class SegmentationTests(unittest.TestCase):
 
 
 class SummaryTests(unittest.TestCase):
+    def test_model_reference_uses_default_and_accepts_checkpoint_override(self):
+        for value, expected in [
+            (" ", "facebook/mbart-large-50"),
+            (" ./checkpoints/mbart-python ", "./checkpoints/mbart-python"),
+            ("tim/mbart-python", "tim/mbart-python"),
+        ]:
+            with self.subTest(value=value), patch.dict("os.environ", MBART_MODEL_ID=value):
+                self.assertEqual(model_reference(), expected)
+
+    def test_generation_uses_eos_and_forces_indonesian(self):
+        language_id = 250032
+        tokenizer = Mock(lang_code_to_id={"id_ID": language_id}, eos_token_id=2)
+        model = Mock(device=torch.device("cpu"))
+        inputs = BatchEncoding({
+            "input_ids": torch.tensor([[language_id, 412, 2]]),
+            "attention_mask": torch.tensor([[1, 1, 1]]),
+        })
+
+        self.assertIs(generate_mbart(inputs, tokenizer, model), model.generate.return_value)
+        options = model.generate.call_args.kwargs
+        self.assertEqual(options["decoder_start_token_id"], 2)
+        self.assertEqual(options["forced_bos_token_id"], language_id)
+        self.assertTrue(torch.equal(options["attention_mask"], inputs["attention_mask"]))
+
     def test_preserves_function_argument_case_and_quantity(self):
         source = 'Untuk tahap ini, pakai dropna(subset=["Harga"]) pada lima baris penjualan.'
         concise = 'Pakai dropna(subset=["Harga"]) pada lima baris penjualan.'

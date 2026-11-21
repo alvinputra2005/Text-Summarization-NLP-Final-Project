@@ -1,19 +1,16 @@
 from collections import Counter
 from dataclasses import dataclass
 import os
-from pathlib import Path
 import re
 
-from indobenchmark import IndoNLGTokenizer
-import streamlit as st
 import torch
-from transformers import AutoModelForSeq2SeqLM
+from transformers import AutoModelForSeq2SeqLM, MBart50TokenizerFast
 
 from src.segmentation import ACTION
 
 
-PUBLIC_MODEL = "indobenchmark/indobart-v2"
-INDONESIAN = "[indonesian]"
+PUBLIC_MODEL = "facebook/mbart-large-50"
+INDONESIAN = "id_ID"
 CODE = re.compile(
     r"`[^`]+`|\b(?:[A-Za-z_]\w*\.)+[A-Za-z_]\w*\b(?!\s*[.\w])"
     r"|\b[A-Za-z_]\w*(?=\s*\()|\b[A-Za-z_]\w*_[A-Za-z_\d]+\b"
@@ -37,21 +34,11 @@ class Summary:
 
 
 def model_reference() -> str:
-    checkpoint = os.environ.get("INDOBART_CHECKPOINT", "").strip()
-    if not checkpoint:
-        return PUBLIC_MODEL
-    path = Path(checkpoint).expanduser().resolve()
-    if not path.is_dir():
-        raise ValueError("Folder INDOBART_CHECKPOINT tidak ditemukan. Periksa path checkpoint.")
-    return str(path)
+    return os.environ.get("MBART_MODEL_ID", "").strip() or PUBLIC_MODEL
 
 
-@st.cache_resource(show_spinner=False)
-def load_indobart(reference: str):
-    tokenizer_source = PUBLIC_MODEL
-    if reference == PUBLIC_MODEL or (Path(reference) / "sentencepiece.bpe.model").is_file():
-        tokenizer_source = reference
-    tokenizer = IndoNLGTokenizer.from_pretrained(tokenizer_source)
+def load_mbart(reference: str):
+    tokenizer = MBart50TokenizerFast.from_pretrained(reference, src_lang=INDONESIAN, tgt_lang=INDONESIAN)
     # The public repository publishes PyTorch weights. Load them directly with PyTorch >= 2.6.
     model = AutoModelForSeq2SeqLM.from_pretrained(
         reference, use_safetensors=False if reference == PUBLIC_MODEL else None
@@ -59,23 +46,25 @@ def load_indobart(reference: str):
     return tokenizer, model
 
 
-def summarize(text: str, tokenizer, model) -> Summary:
-    inputs = tokenizer.prepare_input_for_generation(
-        text, lang_token=INDONESIAN, decoder_lang_token=INDONESIAN, return_tensors="pt"
-    )
-    input_ids = inputs["input_ids"].reshape(1, -1)
-    attention_mask = inputs["attention_mask"].reshape(1, -1)
-    if input_ids.shape[1] > model.config.max_position_embeddings:
-        return Summary(text, is_excerpt=True)
+def generate_mbart(inputs, tokenizer, model, *, max_new_tokens: int = 56):
+    language_id = tokenizer.lang_code_to_id[INDONESIAN]
     with torch.inference_mode():
-        output = model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            decoder_start_token_id=tokenizer.convert_tokens_to_ids(INDONESIAN),
-            max_new_tokens=56,
+        return model.generate(
+            **inputs.to(model.device),
+            decoder_start_token_id=tokenizer.eos_token_id,
+            forced_bos_token_id=language_id,
+            max_new_tokens=max_new_tokens,
             num_beams=2,
             do_sample=False,
+            return_dict_in_generate=False,
         )
+
+
+def summarize(text: str, tokenizer, model) -> Summary:
+    inputs = tokenizer(text, return_tensors="pt", verbose=False)
+    if inputs["input_ids"].shape[1] > model.config.max_position_embeddings:
+        return Summary(text, is_excerpt=True)
+    output = generate_mbart(inputs, tokenizer, model)
     generated = " ".join(tokenizer.decode(output[0], skip_special_tokens=True).split())
     if summary_preserves_details(text, generated):
         return Summary(generated)

@@ -3,10 +3,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import streamlit as st
+
 from src.media import MediaError, prepare_video
 from src.segmentation import group_segments
-from src.summarization import load_indobart, model_reference, summarize
+from src.summarization import load_mbart, model_reference, summarize
 from src.transcription import transcribe
+
+
+load_cached_mbart = st.cache_resource(show_spinner=False)(load_mbart)
 
 
 @dataclass(frozen=True)
@@ -39,9 +44,9 @@ def build_guide(video: bytes, progress: Callable[[float, str], None]) -> Guide:
         if not groups:
             raise MediaError("Narasi belum terdeteksi. Coba video dengan suara yang lebih jelas.")
 
-        progress(0.64, "Memuat IndoBART-v2…")
+        progress(0.64, "Memuat mBART-50…")
         reference = model_reference()
-        tokenizer, model = load_indobart(reference)
+        tokenizer, model = load_cached_mbart(reference)
         steps = []
         for index, group in enumerate(groups):
             progress(0.66 + 0.32 * index / len(groups), f"Meringkas langkah {index + 1} dari {len(groups)}…")

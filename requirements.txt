@@ -2,5 +2,4 @@ streamlit>=1.45,<2
 openai-whisper
 torch>=2.6,<3
 transformers>=4.52,<5
-indobenchmark-toolkit==0.1.7
 sentencepiece
