@@ -2,7 +2,6 @@ from pathlib import Path
 from threading import Lock
 
 import streamlit as st
-import whisper
 
 from src.media import MediaError
 from src.segmentation import Segment
@@ -14,14 +13,18 @@ whisper_lock = Lock()
 
 @st.cache_resource(show_spinner=False)
 def load_whisper():
-    return whisper.load_model(WHISPER_MODEL, device="cpu")
+    from whisper import load_model
+
+    return load_model(WHISPER_MODEL, device="cpu")
 
 
-def transcribe(video: Path) -> list[Segment]:
+def transcribe(media: Path) -> list[Segment]:
+    from whisper import load_audio
+
     try:
-        audio = whisper.load_audio(str(video))
+        audio = load_audio(str(media))
     except RuntimeError as error:
-        raise MediaError("Audio gagal didekode. Coba ekspor ulang MP4 dengan audio AAC.") from error
+        raise MediaError("Audio gagal dibaca. Coba sumber video lain dengan suara yang bisa diputar.") from error
     if not audio.any():
         raise MediaError("Audio hening. Pilih video dengan narasi yang terdengar.")
     with whisper_lock:

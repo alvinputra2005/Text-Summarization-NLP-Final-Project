@@ -63,4 +63,6 @@ def group_segments(segments: list[Segment]) -> list[Segment]:
 
 
 def join_segments(segments: list[Segment]) -> Segment:
-    return Segment(segments[0].start, segments[-1].end, "\n".join(segment.transcript for segment in segments))
+    return Segment(segments[0].start, max(segment.end for segment in segments), "\n".join(
+        segment.transcript for segment in segments
+    ))

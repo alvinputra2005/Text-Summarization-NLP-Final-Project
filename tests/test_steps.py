@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 import torch
 from transformers import BatchEncoding
 
+from src.pipeline import Guide, Step
 from src.segmentation import Segment, group_segments
 from src.summarization import generate_mbart, model_reference, summary_preserves_details
 
@@ -24,6 +25,17 @@ class SegmentationTests(unittest.TestCase):
         first = Segment(0.0, 1.0, "Periksa isi data.")
         second = Segment(5.0, 6.8, "Periksa data penjualan lagi.")
         self.assertEqual(group_segments([first, Segment(1.0, 2.0, "  "), second]), [first, second])
+
+
+class GuideTests(unittest.TestCase):
+    def test_search_matches_summary_and_transcript_and_keeps_original_index(self):
+        read = Step(0, 4, "Baca CSV.", "Muat data.", False)
+        clean = Step(4, 8, "Gunakan dropna.", "Hapus harga kosong.", False)
+        guide = Guide(b"", [read, clean], "example")
+
+        self.assertEqual(guide.find_steps("DROPNA harga"), [(1, clean)])
+        self.assertEqual(guide.find_steps("dropna CSV"), [])
+        self.assertEqual(guide.find_steps(" "), [(0, read), (1, clean)])
 
 
 class SummaryTests(unittest.TestCase):

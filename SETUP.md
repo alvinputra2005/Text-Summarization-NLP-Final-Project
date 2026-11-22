@@ -17,6 +17,8 @@ ffmpeg -version
 ffprobe -version
 ```
 
+Untuk tab **Link YouTube**, gunakan koneksi internet dan Node.js 22 atau lebih baru di PATH. Jalankan `node --version` untuk memeriksanya. Paket `yt-dlp` dipasang bersama `requirements.txt`.
+
 ## 2. Uji dependensi dan checkpoint
 
 Setelah membuat `.venv` dan memasang dependensi sesuai README, jalankan dari akar repo.
@@ -50,6 +52,7 @@ $transcript.segments | Select-Object -First 3 start, end, text | Format-Table -W
 ```
 
 - Unggah MP4 dan tekan **Buat Panduan**. Periksa bahwa model yang ditampilkan sesuai konfigurasi.
+- Buka tab **Link YouTube**, tempel link video publik bernarasi, lalu tekan **Buat Panduan**. Periksa bahwa transkrip dan penanda waktu muncul setelah Whisper memproses audio.
 - Klik setiap waktu dan klik ulang salah satu penanda. Pastikan pemutar berpindah ke waktu sumber tanpa tahap transkripsi atau peringkasan berjalan lagi.
 - Buka **Lihat transkrip** dan cocokkan ucapan sumber dengan langkahnya.
 - Pilih **Ganti video** dan pastikan hasil sebelumnya hilang. Uji pesan untuk MP4 rusak atau tanpa audio.

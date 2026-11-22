@@ -1,18 +1,20 @@
 # Panduan Praktik Python
 
-Aplikasi Streamlit lokal yang mengubah video tutorial Python berbahasa Indonesia menjadi panduan praktik dengan penanda waktu. Unggah MP4 bernarasi, tekan **Buat Panduan**, lalu klik waktu pada langkah yang ingin diputar. Buka **Lihat transkrip** untuk memeriksa ucapan sumber. Gunakan **Ganti video** untuk memproses unggahan lain dalam sesi browser.
+Aplikasi Streamlit lokal yang mengubah video tutorial Python berbahasa Indonesia menjadi panduan praktik dengan penanda waktu. Pilih **Unggah MP4** untuk memilih berkas video, atau pilih **Link YouTube** dan tempel alamat satu video publik bernarasi. Tekan **Buat Panduan** agar Whisper mentranskripsikan audio dan mBART meringkasnya. Lalu cari kata seperti `dropna` di **Cari langkah** dan tekan Enter.
+
+Klik penanda waktu untuk memutar langkah, buka **Lihat transkrip** untuk memeriksa teks sumber, atau buka **Detail pemrosesan** untuk melihat sumber transkrip, model, dan durasi proses. Untuk video yang membatasi pemutaran sematan, **Buka di YouTube** membuka video pada waktu langkah yang dipilih. Gunakan **Ganti video** untuk memproses sumber lain dalam sesi browser.
 
 ## Pipeline
 
-1. FFprobe memeriksa video dan jalur audio. FFmpeg menyiapkan media untuk pemutar dan dekode audio.
-2. Whisper `base` multibahasa mentranskripsi narasi Indonesia dan menghasilkan `start` serta `end` dalam detik.
+1. Untuk MP4, FFprobe memeriksa video dan jalur audio. FFmpeg menyiapkan media untuk pemutar dan dekode audio.
+2. Untuk YouTube, `yt-dlp` mengambil audio ke folder sementara. Whisper `base` multibahasa menghasilkan transkrip dan penanda waktu dari kedua sumber.
 3. Python mengelompokkan potongan yang membahas satu tindakan dan menyimpan rentang waktu serta transkrip sumber.
 4. mBART-50 merangkum tiap kelompok teks. Jika hasil kosong atau pemeriksaan mendeteksi detail penting yang berubah, aplikasi menampilkan **Cuplikan sumber**.
 5. Streamlit menautkan ringkasan ke waktu mulai dari Whisper. Klik penanda menggeser pemutar menggunakan hasil sesi yang sudah tersedia.
 
 ## Jalankan di Windows PowerShell
 
-Pasang Python 3.11, FFmpeg, dan FFprobe. Lihat [SETUP.md](SETUP.md) untuk prasyarat dan cara menguji audio. Jalankan dari akar repo.
+Pasang Python 3.11, FFmpeg, dan FFprobe. Untuk **Link YouTube**, siapkan juga Node.js 22 atau lebih baru di PATH serta koneksi internet. Lihat [SETUP.md](SETUP.md) untuk prasyarat dan cara menguji audio. Jalankan dari akar repo.
 
 ```powershell
 if (-not (Test-Path '.\.venv\Scripts\python.exe')) {
