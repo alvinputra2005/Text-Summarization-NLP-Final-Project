@@ -31,7 +31,9 @@ PROMPT_EXAMPLE = "Fungsi input() dapat menampilkan teks pertanyaan kepada penggu
 TEXT_BOOLEAN_EXAMPLE = 'Saat teks "False" langsung dibaca sebagai boolean, hasilnya justru True karena string tersebut tidak kosong.'
 BINARY_EXAMPLE = "Dalam contoh masukan numerik, 0 menghasilkan False dan 1 menghasilkan True setelah masukan dikonversi ke integer."
 NUMBER_AS_TEXT = re.compile(
-    r"\binput\b[^.!?\d]{0,45}\b(\d+(?:[.,]\d+)?)\b[^.!?]{0,70}\b(?:str|string)\b", re.IGNORECASE,
+    r"\binput\b[^.!?\d]{0,45}\b(\d+(?:[.,]\d+)?)\b[^!?]{0,70}"
+    r"\b(?:data|nilai) yang (?:keluar|diterima) (?:adalah|bertipe) (?:str|string)\b",
+    re.IGNORECASE,
 )
 TECHNICAL_REWRITES = (
     (r"\binput\b.*\binput pakai kurung", INPUT_EVIDENCE),
@@ -206,13 +208,21 @@ def is_input_example(sentence: str) -> bool:
     )
 
 
+def format_overview(text: str) -> str:
+    for example in (TEXT_BOOLEAN_EXAMPLE, BINARY_EXAMPLE):
+        lead, marker, rest = text.partition(example)
+        if marker and lead.strip():
+            return f"{lead.rstrip()}\n\n{marker}{rest}"
+    return text
+
+
 def summarize_overview(evidence: tuple[str, ...], tokenizer, model) -> Overview:
     from src.summarization import details, generate_mbart
 
     source = overview_context(evidence)
     inputs = tokenizer(source, return_tensors="pt", verbose=False)
     if inputs["input_ids"].shape[1] > model.config.max_position_embeddings:
-        return Overview(source, evidence, True)
+        return Overview(format_overview(source), evidence, True)
     output = generate_mbart(inputs, tokenizer, model, max_new_tokens=180)
     generated = " ".join(tokenizer.decode(output[0], skip_special_tokens=True).split())
     if not generated or generated[-1] not in ".!?":
@@ -237,5 +247,5 @@ def summarize_overview(evidence: tuple[str, ...], tokenizer, model) -> Overview:
         and not re.search(r"\b(\w+)(?:[ ,]+\1){2,}\b", generated, re.IGNORECASE)
         and len(generated.split()) <= len(source.split())
     ):
-        return Overview(generated, evidence, False)
-    return Overview(source, evidence, True)
+        return Overview(format_overview(generated), evidence, False)
+    return Overview(format_overview(source), evidence, True)
