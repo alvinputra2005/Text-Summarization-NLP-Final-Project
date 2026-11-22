@@ -149,11 +149,27 @@
   font-weight: 650;
 }
 
-.step-copy {
+.step-copy,
+.video-intro {
   margin: 0;
   font-size: 1rem;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.video-intro {
+  color: var(--muted);
+  padding-bottom: 0.75rem;
+}
+
+.step-copy code,
+.video-intro code {
+  padding: 0.05em 0.26em;
+  border-radius: 0.2rem;
+  color: #244a90;
+  background: #e9eff8;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.9em;
 }
 
 .st-key-analysis-panel {
@@ -164,7 +180,7 @@
 
 .st-key-analysis-panel .pipeline-flow {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 1.75rem;
   margin: 0;
   padding: 0;
@@ -173,17 +189,18 @@
 
 .pipeline-flow li {
   position: relative;
-  padding: 0.75rem 0 0.75rem 0.75rem;
-  border-left: 2px solid var(--line);
+  padding: 0.75rem;
+  border-top: 3px solid var(--accent);
+  background: var(--surface);
 }
 
 .pipeline-flow li + li::before {
   position: absolute;
-  left: -1.5rem;
+  left: -1.35rem;
   top: 50%;
-  width: 1rem;
-  border-top: 1px solid var(--line);
-  content: "";
+  color: var(--muted);
+  line-height: 0;
+  content: "→";
 }
 
 .pipeline-flow strong,
@@ -271,10 +288,15 @@
 
   .st-key-analysis-panel .pipeline-flow {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0;
+    gap: 0.375rem;
   }
 
-  .pipeline-flow li + li::before {
+  .pipeline-flow li {
+    border-top: 0;
+    border-left: 3px solid var(--accent);
+  }
+
+  .st-key-analysis-panel .pipeline-flow li + li::before {
     display: none;
   }
 }

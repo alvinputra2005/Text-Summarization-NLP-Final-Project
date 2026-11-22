@@ -1,4 +1,5 @@
 streamlit>=1.45,<2
+pandas
 openai-whisper
 faster-whisper>=1.2,<2
 torch>=2.6,<3

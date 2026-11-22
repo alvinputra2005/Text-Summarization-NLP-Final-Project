@@ -63,7 +63,7 @@ class YouTubeTests(unittest.TestCase):
         with patch("src.pipeline.download_youtube_audio") as download, patch(
             "src.pipeline.transcribe", return_value=[segment],
         ) as transcribe, patch(
-            "src.pipeline.summarize_segments", return_value=(steps, "example-mbart"),
+            "src.pipeline.summarize_segments", return_value=(steps, "example-mbart", None),
         ) as summarize:
             guide = build_youtube_guide("https://youtu.be/M7lc1UVf-VE?t=20", progress)
         video, scratch = download.call_args.args

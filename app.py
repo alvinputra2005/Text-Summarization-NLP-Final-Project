@@ -3,9 +3,12 @@ from html import escape
 import logging
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
-from src.evaluation import normalize, speech_metrics, summary_metrics
+from src.code_text import highlight_code, technical_terms
+from src.evaluation import summary_metrics
+from src.evaluation_view import show_evaluation
 from src.media import MediaError
 from src.pipeline import Guide, Progress, build_guide, build_youtube_guide
 
@@ -22,7 +25,7 @@ def timestamp(seconds: float) -> str:
 
 
 def reset_guide() -> None:
-    for key in ("guide", "video_name", "seek_start", "seek_revision", "guide-evaluation"):
+    for key in ("guide", "video_name", "seek_start", "seek_revision", "guide-evaluation", "step-reviews", "audit-step"):
         st.session_state.pop(key, None)
 
 
@@ -90,46 +93,69 @@ def upload_view() -> None:
             st.caption("Video dan panduan tersedia selama sesi ini.")
 
 
-def show_evaluation(transcript: str, summary: str) -> None:
-    with st.expander("Evaluasi dengan teks acuan"):
-        st.caption("WER dan CER memakai transkrip acuan. ROUGE-1, ROUGE-2, dan ROUGE-L memakai ringkasan acuan.")
-        with st.form("reference-evaluation", border=False):
-            transcript_reference = st.text_area("Transkrip acuan", placeholder="Tempel transkrip yang sudah diperiksa.")
-            summary_reference = st.text_area("Ringkasan acuan", placeholder="Tempel ringkasan referensi.")
-            calculate = st.form_submit_button("Hitung skor")
-        if calculate:
-            scores = {}
-            if normalize(transcript_reference):
-                scores.update(speech_metrics([transcript_reference], [transcript]))
-            if normalize(summary_reference):
-                scores.update(summary_metrics(summary_reference, summary))
-            st.session_state["guide-evaluation"] = scores
-        scores = st.session_state.get("guide-evaluation") or {}
-        if scores:
-            labels = {
-                "wer": "WER", "cer": "CER", "rouge1": "ROUGE-1",
-                "rouge2": "ROUGE-2", "rougeL": "ROUGE-L",
-            }
-            st.markdown(
-                "| Metrik | Skor |\n| :-- | --: |\n"
-                + "\n".join(f"| {labels[name]} | {score:.2%} |" for name, score in scores.items())
-            )
-        else:
-            st.caption("Skor tersedia setelah teks acuan diisi.")
+def show_step_audit(guide: Guide) -> None:
+    st.caption("Bandingkan ringkasan dengan masukan mBART dan transkrip aslinya, lalu catat penilaianmu per langkah.")
+    index = st.selectbox(
+        "Langkah yang diperiksa", range(len(guide.steps)), key="audit-step",
+        format_func=lambda index: f"{timestamp(guide.steps[index].start)} · {guide.steps[index].summary[:75]}",
+    )
+    step = guide.steps[index]
+    st.button("Putar langkah ini", key="audit-seek", on_click=seek, args=(step.start,))
+    original, rendered = st.columns(2)
+    with original:
+        st.markdown("**Teks masukan mBART**")
+        st.html(f'<p class="step-copy">{highlight_code(step.model_input)}</p>')
+    with rendered:
+        st.markdown("**Ringkasan langkah**")
+        st.html(f'<p class="step-copy">{highlight_code(step.summary)}</p>')
+        st.caption("Disusun dari teks sumber" if step.is_excerpt else "Keluaran mBART")
+
+    source_terms = technical_terms(step.model_input)
+    missing = sorted(source_terms - technical_terms(step.summary))
+    if source_terms:
+        st.progress(
+            (len(source_terms) - len(missing)) / len(source_terms),
+            text=f"Istilah teknis yang muncul kembali · {len(source_terms) - len(missing)} dari {len(source_terms)}",
+        )
+        if missing:
+            st.text("Tidak muncul dalam ringkasan · " + ", ".join(missing))
+    if step.model_input:
+        overlap = summary_metrics(step.model_input, step.summary)["rougeL"]
+        st.caption(f"Kemiripan urutan kata terhadap masukan mBART · {overlap:.1%} (ROUGE-L F1).")
+    with st.expander("Lihat transkrip sumber"):
+        st.text(step.transcript)
+
+    aspects = ("Kejelasan ringkasan", "Informasi penting", "Ketepatan pemilihan segmen")
+    ratings = ["Sesuai", "Perlu perbaikan"]
+    reviews = st.session_state.setdefault("step-reviews", {})
+    saved = reviews.get(index, {})
+    with st.form(f"review-step-{index}", border=False):
+        answers = {
+            aspect: st.radio(
+                aspect, ratings, index=ratings.index(saved[aspect]) if saved.get(aspect) in ratings else None,
+                horizontal=True,
+            ) for aspect in aspects
+        }
+        note = st.text_area("Catatan kesalahan", value=saved.get("note", ""), placeholder="Contoh: fungsi disebut salah atau konteksnya hilang.")
+        if st.form_submit_button("Simpan penilaian") and (any(answers.values()) or note.strip()):
+            reviews[index] = {**answers, "note": note}
+            st.caption("Penilaian tersimpan selama sesi ini.")
+    if reviews:
+        st.caption(f"Langkah yang sudah ditinjau · {len(reviews)} dari {len(guide.steps)}")
 
 
 def show_analysis(guide: Guide) -> None:
-    import altair as alt
-
     transcript = " ".join(segment.text for segment in guide.transcript)
     summary = " ".join(step.summary for step in guide.steps)
+    model_input = " ".join(step.model_input for step in guide.steps)
     engine = "faster-whisper · CPU INT8" if guide.transcription_backend == "faster" else "OpenAI Whisper · CPU"
     source = guide.transcript_source or f"Whisper {guide.transcription_model} · {engine}"
     media = "YouTube" if isinstance(guide.video, str) else "MP4 tervalidasi"
     outputs = (
         ("Sumber video", media),
         ("Transkrip", f"{len(guide.transcript)} segmen · {len(transcript.split())} kata"),
-        ("Teks terpilih", f"{len(guide.steps)} bagian untuk mBART"),
+        ("Segmentasi", f"{len(guide.steps)} bagian berdasarkan tindakan"),
+        ("mBART-50", f"{len(model_input.split())} kata sebagai masukan"),
         ("Panduan", f"{len(guide.steps)} langkah · {len(summary.split())} kata"),
     )
     with st.container(key="analysis-panel"):
@@ -142,57 +168,68 @@ def show_analysis(guide: Guide) -> None:
             )
             + "</ol>"
         )
-        if guide.timings is not None:
-            st.markdown("**Waktu per tahap**")
-            stages = ["Media", "Transkrip", "Ringkasan"]
-            values = [guide.timings.media, guide.timings.transcription, guide.timings.summarization]
-            base = alt.Chart(alt.Data(values=[
-                {"Tahap": stage, "Detik": round(duration, 2)} for stage, duration in zip(stages, values, strict=True)
-            ])).encode(
-                y=alt.Y("Tahap:N", sort=stages, title=None, axis=alt.Axis(labelOverlap=False, labelPadding=8)),
-                x=alt.X(
-                    "Detik:Q", title="Detik", axis=alt.Axis(tickCount=5),
-                    scale=alt.Scale(domain=[0, max(1.0, max(values) * 1.22)]),
-                ),
-            )
-            bars = base.mark_bar(color="#2858B8", size=14).encode(
-                tooltip=["Tahap:N", alt.Tooltip("Detik:Q", format=".2f")],
-            )
-            labels = base.mark_text(align="left", dx=5, color="#202734").encode(text=alt.Text("Detik:Q", format=".1f"))
-            chart = (bars + labels).properties(height=175)
-            st.altair_chart(chart)
-            st.caption(f"Total {guide.processing_seconds:.1f} detik · {source}")
+        flow, scores, audit = st.tabs(["Alur dan waktu", "Skor acuan", "Audit langkah"])
+        with scores:
+            show_evaluation(transcript, summary, model_input)
+        with audit:
+            show_step_audit(guide)
+        with flow:
+            show_pipeline_details(guide, source)
 
-        with st.expander("Hasil tiap tahap"):
-            st.markdown("**Media**")
-            st.text(guide.video if isinstance(guide.video, str) else f"MP4 siap diputar · {len(guide.video) / 1_000_000:.2f} MB")
-            st.markdown("**Transkrip**")
-            st.caption(source)
-            segment_index = st.selectbox(
-                "Segmen untuk diputar", range(len(guide.transcript)),
-                format_func=lambda index: (
-                    f"{timestamp(guide.transcript[index].start)} · {guide.transcript[index].text[:64]}"
-                ),
+
+def show_pipeline_details(guide: Guide, source: str) -> None:
+    import altair as alt
+
+    if guide.timings is not None:
+        st.markdown("**Waktu per tahap**")
+        stages = ["Media", "Transkrip", "Segmentasi dan ringkasan"]
+        values = [guide.timings.media, guide.timings.transcription, guide.timings.summarization]
+        base = alt.Chart(pd.DataFrame([
+            {"Tahap": stage, "Detik": round(duration, 2)} for stage, duration in zip(stages, values, strict=True)
+        ])).encode(
+            y=alt.Y("Tahap:N", sort=stages, title=None, axis=alt.Axis(labelOverlap=False, labelPadding=8, labelLimit=160)),
+            x=alt.X(
+                "Detik:Q", title="Detik", axis=alt.Axis(tickCount=5),
+                scale=alt.Scale(domain=[0, max(1.0, max(values) * 1.22)]),
+            ),
+        )
+        bars = base.mark_bar(color="#2858B8", size=14).encode(
+            tooltip=["Tahap:N", alt.Tooltip("Detik:Q", format=".2f")],
+        )
+        labels = base.mark_text(align="left", dx=5, color="#202734").encode(text=alt.Text("Detik:Q", format=".1f"))
+        chart = (bars + labels).properties(height=175)
+        st.altair_chart(chart)
+        st.caption(f"Total {guide.processing_seconds:.1f} detik · {source}")
+
+    with st.expander("Hasil tiap tahap"):
+        st.markdown("**Media**")
+        st.text(guide.video if isinstance(guide.video, str) else f"MP4 siap diputar · {len(guide.video) / 1_000_000:.2f} MB")
+        st.markdown("**Transkrip**")
+        st.caption(source)
+        segment_index = st.selectbox(
+            "Segmen untuk diputar", range(len(guide.transcript)),
+            format_func=lambda index: (
+                f"{timestamp(guide.transcript[index].start)} · {guide.transcript[index].text[:64]}"
+            ),
+        )
+        if segment_index is not None:
+            st.button("Putar segmen", on_click=seek, args=(guide.transcript[segment_index].start,))
+        st.html(
+            '<div class="transcript-lines" tabindex="0" aria-label="Transkrip bertanda waktu">'
+            + "".join(
+                f'<p><span>{timestamp(segment.start)}</span> {escape(segment.text)}</p>'
+                for segment in guide.transcript
             )
-            if segment_index is not None:
-                st.button("Putar segmen", on_click=seek, args=(guide.transcript[segment_index].start,))
-            st.html(
-                '<div class="transcript-lines" tabindex="0" aria-label="Transkrip bertanda waktu">'
-                + "".join(
-                    f'<p><span>{timestamp(segment.start)}</span> {escape(segment.text)}</p>'
-                    for segment in guide.transcript
-                )
-                + "</div>"
-            )
-            st.markdown("**Teks yang dipilih**")
-            st.html("<ol>" + "".join(
-                f"<li>{timestamp(step.start)} · {escape(step.model_input)}</li>" for step in guide.steps
-            ) + "</ol>")
-            st.caption(f"Model ringkasan {guide.model}")
-            excerpts = sum(step.is_excerpt for step in guide.steps)
-            if excerpts:
-                st.caption(f"{excerpts} dari {len(guide.steps)} langkah memakai teks sumber setelah pemeriksaan keluaran mBART.")
-        show_evaluation(transcript, summary)
+            + "</div>"
+        )
+        st.markdown("**Teks yang dipilih**")
+        st.html("<ol>" + "".join(
+            f"<li>{timestamp(step.start)} · {escape(step.model_input)}</li>" for step in guide.steps
+        ) + "</ol>")
+        st.caption(f"Model ringkasan {guide.model}")
+        excerpts = sum(step.is_excerpt for step in guide.steps)
+        if excerpts:
+            st.caption(f"{excerpts} dari {len(guide.steps)} langkah memakai teks sumber setelah pemeriksaan keluaran mBART.")
 
 
 def guide_view(guide: Guide) -> None:
@@ -219,6 +256,9 @@ def guide_view(guide: Guide) -> None:
             if isinstance(guide.video, str):
                 st.link_button("Buka di YouTube", f"{guide.video}&t={int(start)}s")
         with summary, st.container(key="summary-pane"):
+            if guide.overview:
+                st.subheader("Tentang video")
+                st.html(f'<p class="video-intro">{highlight_code(guide.overview.text)}</p>')
             st.subheader("Langkah dalam video")
             with st.container(key="timeline"):
                 for index, step in enumerate(guide.steps):
@@ -230,7 +270,7 @@ def guide_view(guide: Guide) -> None:
                             on_click=seek, args=(step.start,),
                         )
                     with action:
-                        st.html(f'<p class="step-copy">{escape(step.summary)}</p>')
+                        st.html(f'<p class="step-copy">{highlight_code(step.summary)}</p>')
     show_analysis(guide)
 
 

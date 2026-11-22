@@ -7,7 +7,7 @@ from time import perf_counter
 import streamlit as st
 
 from src.media import MediaError, prepare_video
-from src.overview import Overview, prepare_evidence, summarize_overview
+from src.overview import SENTENCE_END, Overview, overview_context, prepare_evidence, summarize_overview, topic_tags
 from src.segmentation import Segment
 from src.step_sources import prepare_step_sources
 from src.transcription import DEFAULT_WHISPER_BACKEND, WHISPER_MODEL, transcribe, whisper_backend
@@ -64,7 +64,7 @@ class Guide:
         return matches
 
 
-def summarize_segments(segments: list[Segment], progress: Progress) -> tuple[list[Step], str]:
+def summarize_segments(segments: list[Segment], progress: Progress) -> tuple[list[Step], str, Overview]:
     progress(0.58, "Mengelompokkan transkrip per langkah…")
     sources = prepare_step_sources(segments)
     if not sources:
@@ -77,11 +77,20 @@ def summarize_segments(segments: list[Segment], progress: Progress) -> tuple[lis
     tokenizer, model = load_cached_mbart(reference)
     steps = []
     for index, source in enumerate(sources):
-        progress(0.66 + 0.32 * index / len(sources), f"Meringkas langkah {index + 1} dari {len(sources)}…")
+        progress(0.66 + 0.27 * index / len(sources), f"Meringkas langkah {index + 1} dari {len(sources)}…")
         result = summarize(source.text, tokenizer, model, required_clause=source.required_clause)
         segment = source.segment
         steps.append(Step(segment.start, segment.end, segment.transcript, result.text, result.is_excerpt, source.text))
-    return steps, reference
+    progress(0.95, "Membuat pengantar video…")
+    evidence = tuple(step.model_input for step in steps)
+    tags = topic_tags(" ".join(evidence))
+    if {"input", "string", "integer", "float", "boolean"} <= tags:
+        context = "Video ini membahas cara membaca masukan pengguna dengan input() dan mengubah hasilnya dari string menjadi integer, float, atau boolean."
+    else:
+        sentences = tuple(sentence for item in evidence for sentence in SENTENCE_END.split(item))
+        context = SENTENCE_END.split(overview_context(sentences))[0]
+    intro = summarize(context, tokenizer, model)
+    return steps, reference, Overview(intro.text, evidence, intro.is_excerpt)
 
 
 def finish_guide(
@@ -103,7 +112,7 @@ def finish_guide(
         overview_result = summarize_overview(evidence, tokenizer, model)
         steps = []
     else:
-        steps, reference = summarize_segments(segments, progress)
+        steps, reference, overview_result = summarize_segments(segments, progress)
     finished = perf_counter()
     guide = Guide(
         video, steps, reference, processing_seconds=finished - started, transcription_backend=whisper_backend(),

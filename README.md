@@ -2,7 +2,7 @@
 
 Aplikasi Streamlit lokal yang membuat panduan bertanda waktu dari video tutorial Python berbahasa Indonesia. Pilih **Unggah MP4** atau tempel alamat video publik di **Link YouTube**, lalu tekan **Buat Panduan**.
 
-Langkah muncul di samping video. Klik penanda waktu untuk melompat ke bagian yang menjelaskan tindakan dan hasilnya. Di bawah video, **Analisis pemrosesan** menampilkan alur, keluaran, dan waktu tiap tahap. Buka **Hasil tiap tahap** untuk melihat transkrip dan teks yang masuk ke mBART. Isi **Evaluasi dengan teks acuan** untuk menghitung WER, CER, dan ROUGE. ROUGE memakai gabungan teks langkah dalam urutan video.
+Pengantar dan langkah muncul di samping video. Klik penanda waktu untuk melompat ke bagian yang menjelaskan tindakan dan hasilnya. **Analisis pemrosesan** menampilkan alur, keluaran, dan waktu proses. Di **Skor acuan**, isi ringkasan acuan untuk membandingkan ROUGE-1, ROUGE-2, ROUGE-3, dan ROUGE-L, atau transkrip acuan untuk menghitung WER dan CER. ROUGE memakai gabungan teks langkah dalam urutan video. Isi ringkasan pembanding jika ingin memakai keluaran model lain. Di **Audit langkah**, periksa istilah teknis, segmen sumber, dan catat penilaian selama sesi.
 
 ## Pipeline
 
