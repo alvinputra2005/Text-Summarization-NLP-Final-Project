@@ -15,6 +15,7 @@ from src.pipeline import Guide, Progress, build_guide, build_youtube_guide
 
 log = logging.getLogger(__name__)
 STYLES = Path(__file__).with_name("assets") / "app.css"
+UNREADABLE_STEP = "Ucapan di bagian ini belum cukup jelas untuk diringkas."
 
 
 def timestamp(seconds: float) -> str:
@@ -77,7 +78,7 @@ def upload_view() -> None:
                 link = st.text_input(
                     "Link video YouTube", key="youtube-link", placeholder="https://www.youtube.com/watch?v=…",
                 )
-                st.caption("Aplikasi mengambil subtitle Indonesia jika tersedia atau mentranskripsi audio dengan Whisper.")
+                st.caption("Aplikasi memeriksa subtitle Indonesia dan memakai Whisper bila diperlukan.")
                 make_guide = st.button(
                     "Buat Panduan", type="primary", key="make-youtube-guide",
                     disabled=not link.strip(),
@@ -97,7 +98,7 @@ def show_step_audit(guide: Guide) -> None:
     st.caption("Bandingkan ringkasan dengan masukan mBART dan transkrip aslinya, lalu catat penilaianmu per langkah.")
     index = st.selectbox(
         "Langkah yang diperiksa", range(len(guide.steps)), key="audit-step",
-        format_func=lambda index: f"{timestamp(guide.steps[index].start)} · {guide.steps[index].summary[:75]}",
+        format_func=lambda index: f"{timestamp(guide.steps[index].start)} · {(guide.steps[index].summary or UNREADABLE_STEP)[:75]}",
     )
     step = guide.steps[index]
     st.button("Putar langkah ini", key="audit-seek", on_click=seek, args=(step.start,))
@@ -107,10 +108,11 @@ def show_step_audit(guide: Guide) -> None:
         st.html(f'<p class="step-copy">{highlight_code(step.model_input)}</p>')
     with rendered:
         st.markdown("**Ringkasan langkah**")
-        st.html(f'<p class="step-copy">{highlight_code(step.summary)}</p>')
-        st.caption("Disusun dari teks sumber" if step.is_excerpt else "Keluaran mBART")
+        st.html(f'<p class="step-copy">{highlight_code(step.summary or UNREADABLE_STEP)}</p>')
+        if step.summary:
+            st.caption("Disusun dari teks sumber" if step.is_excerpt else "Keluaran mBART")
 
-    source_terms = technical_terms(step.model_input)
+    source_terms = technical_terms(step.model_input) if step.summary else set()
     missing = sorted(source_terms - technical_terms(step.summary))
     if source_terms:
         st.progress(
@@ -119,7 +121,7 @@ def show_step_audit(guide: Guide) -> None:
         )
         if missing:
             st.text("Tidak muncul dalam ringkasan · " + ", ".join(missing))
-    if step.model_input:
+    if step.model_input and step.summary:
         overlap = summary_metrics(step.model_input, step.summary)["rougeL"]
         st.caption(f"Kemiripan urutan kata terhadap masukan mBART · {overlap:.1%} (ROUGE-L F1).")
     with st.expander("Lihat transkrip sumber"):
@@ -148,6 +150,7 @@ def show_analysis(guide: Guide) -> None:
     transcript = " ".join(segment.text for segment in guide.transcript)
     summary = " ".join(step.summary for step in guide.steps)
     model_input = " ".join(step.model_input for step in guide.steps)
+    step_count = sum(bool(step.summary) for step in guide.steps)
     engine = "faster-whisper · CPU INT8" if guide.transcription_backend == "faster" else "OpenAI Whisper · CPU"
     source = guide.transcript_source or f"Whisper {guide.transcription_model} · {engine}"
     media = "YouTube" if isinstance(guide.video, str) else "MP4 tervalidasi"
@@ -155,8 +158,8 @@ def show_analysis(guide: Guide) -> None:
         ("Sumber video", media),
         ("Transkrip", f"{len(guide.transcript)} segmen · {len(transcript.split())} kata"),
         ("Segmentasi", f"{len(guide.steps)} bagian berdasarkan tindakan"),
-        ("mBART-50", f"{len(model_input.split())} kata sebagai masukan"),
-        ("Panduan", f"{len(guide.steps)} langkah · {len(summary.split())} kata"),
+        ("mBART-50", f"{len(model_input.split())} kata sebagai masukan" if model_input.strip() else "Menunggu teks yang cukup jelas"),
+        ("Panduan", f"{step_count} dari {len(guide.steps)} segmen diringkas"),
     )
     with st.container(key="analysis-panel"):
         st.subheader("Analisis pemrosesan")
@@ -206,6 +209,8 @@ def show_pipeline_details(guide: Guide, source: str) -> None:
         st.text(guide.video if isinstance(guide.video, str) else f"MP4 siap diputar · {len(guide.video) / 1_000_000:.2f} MB")
         st.markdown("**Transkrip**")
         st.caption(source)
+        if guide.transcript_note:
+            st.caption(guide.transcript_note)
         segment_index = st.selectbox(
             "Segmen untuk diputar", range(len(guide.transcript)),
             format_func=lambda index: (
@@ -224,7 +229,7 @@ def show_pipeline_details(guide: Guide, source: str) -> None:
         )
         st.markdown("**Teks yang dipilih**")
         st.html("<ol>" + "".join(
-            f"<li>{timestamp(step.start)} · {escape(step.model_input)}</li>" for step in guide.steps
+            f"<li>{timestamp(step.start)} · {escape(step.model_input or UNREADABLE_STEP)}</li>" for step in guide.steps
         ) + "</ol>")
         st.caption(f"Model ringkasan {guide.model}")
         excerpts = sum(step.is_excerpt for step in guide.steps)
@@ -258,7 +263,8 @@ def guide_view(guide: Guide) -> None:
         with summary, st.container(key="summary-pane"):
             if guide.overview:
                 st.subheader("Tentang video")
-                st.html(f'<p class="video-intro">{highlight_code(guide.overview.text)}</p>')
+                intro = guide.overview.text or "Topik video belum bisa dirangkum dari transkrip ini."
+                st.html(f'<p class="video-intro">{highlight_code(intro)}</p>')
             st.subheader("Langkah dalam video")
             with st.container(key="timeline"):
                 for index, step in enumerate(guide.steps):
@@ -270,7 +276,7 @@ def guide_view(guide: Guide) -> None:
                             on_click=seek, args=(step.start,),
                         )
                     with action:
-                        st.html(f'<p class="step-copy">{highlight_code(step.summary)}</p>')
+                        st.html(f'<p class="step-copy">{highlight_code(step.summary or UNREADABLE_STEP)}</p>')
     show_analysis(guide)
 
 

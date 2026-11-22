@@ -6,7 +6,8 @@ from transformers import BatchEncoding
 
 from src.pipeline import Guide, Step
 from src.segmentation import Segment, group_segments
-from src.step_sources import prepare_step_sources
+from src.step_sources import prepare_intro, prepare_step_sources
+from src.transcript_quality import is_readable_summary
 from src.summarization import generate_mbart, model_reference, summarize, summary_preserves_details
 
 
@@ -40,6 +41,37 @@ class GuideTests(unittest.TestCase):
 
 
 class StepSourceTests(unittest.TestCase):
+    def test_boolean_demonstrations_are_separated_and_seek_to_their_introductions(self):
+        steps = prepare_step_sources([
+            Segment(1, 4, "Ini tentang operasi logika Boolean."),
+            Segment(5, 8, "Kita coba not dulu."),
+            Segment(12, 14, "True di not jadi False."),
+            Segment(16, 18, "Sekarang kita coba yang or."),
+            Segment(23, 25, "False or False menjadi False."),
+            Segment(30, 32, "Sekarang kita uji operator and."),
+            Segment(37, 39, "False and True menjadi False."),
+            Segment(40, 42, "Selanjutnya kita pakai XOR."),
+            Segment(45, 47, "True XOR True"),
+            Segment(47, 49, "menjadi False."),
+        ])
+        self.assertEqual([step.segment.start for step in steps], [5, 16, 30, 40])
+        self.assertEqual(steps[-1].segment.end, 49)
+        self.assertTrue(all(is_readable_summary(step.text) for step in steps))
+        self.assertIn("termasuk ketika keduanya True", steps[1].text)
+        self.assertIn("Dua masukan True menghasilkan False", steps[-1].text)
+        self.assertIn("not, or, and dan XOR", prepare_intro(tuple(step.text for step in steps)))
+
+    def test_unreadable_generic_chunk_stays_available_as_transcript_only(self):
+        original = Segment(2, 12, "Oke nah gitu ya kita coba ini yang anu jadi dataaaa terus kayak gini nih")
+        [step] = prepare_step_sources([original])
+        self.assertEqual(step.segment, original)
+        self.assertEqual(step.text, "")
+        self.assertEqual(prepare_intro(()), "")
+
+    def test_intro_can_identify_topics_from_multiple_declarative_steps(self):
+        self.assertEqual(prepare_intro(("Kondisi if menentukan blok yang dijalankan.", "Perulangan while berjalan selama kondisi benar.")),
+                         "Video ini membahas percabangan dan perulangan.")
+
     def test_demonstrations_keep_transcript_times_and_test_values(self):
         segments = [
             Segment(0, 4, "Assalamualaikum teman-teman, kembali lagi di tutorial."),

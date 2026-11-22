@@ -93,3 +93,25 @@ class YouTubeTests(unittest.TestCase):
         transcribe.assert_not_called()
         self.assertEqual(finish.call_args.args[1], captions)
         self.assertEqual(finish.call_args.kwargs["transcript_source"], "Subtitle otomatis YouTube")
+
+    def test_noisy_captions_retry_audio_and_use_the_more_readable_transcript(self):
+        captions = [Segment(i, i + 1, "Oke nah gitu ini anu") for i in range(12)]
+        revised = [Segment(0, 5, "Operator not membalik nilai Boolean.")]
+        with patch("src.pipeline.fetch_youtube_captions", return_value=(captions, "Subtitle otomatis YouTube")), patch(
+            "src.pipeline.download_youtube_audio",
+        ) as download, patch("src.pipeline.transcribe", return_value=revised) as transcribe, patch(
+            "src.pipeline.finish_guide",
+        ) as finish:
+            build_youtube_guide("https://youtu.be/M7lc1UVf-VE", Mock(), prefer_captions=True)
+        transcribe.assert_called_once_with(download.return_value, retry_noisy=True)
+        self.assertEqual(finish.call_args.args[1], revised)
+        self.assertIsNone(finish.call_args.kwargs["transcript_source"])
+
+    def test_noisy_captions_are_kept_when_audio_is_unavailable(self):
+        captions = [Segment(i, i + 1, "Oke nah gitu ini anu") for i in range(12)]
+        with patch("src.pipeline.fetch_youtube_captions", return_value=(captions, "Subtitle otomatis YouTube")), patch(
+            "src.pipeline.download_youtube_audio", side_effect=MediaError("Audio gagal."),
+        ), patch("src.pipeline.finish_guide") as finish:
+            build_youtube_guide("https://youtu.be/M7lc1UVf-VE", Mock(), prefer_captions=True)
+        self.assertEqual(finish.call_args.args[1], captions)
+        self.assertIn("transkripsi ulang gagal", finish.call_args.kwargs["transcript_note"])

@@ -10,6 +10,10 @@ from src.segmentation import Segment
 
 WHISPER_MODEL = "base"
 DEFAULT_WHISPER_BACKEND = "faster"
+PYTHON_PROMPT = (
+    "Tutorial pemrograman Python dalam bahasa Indonesia. Istilah teknis: variabel, tipe data, string, "
+    "integer, float, boolean, True, False, not, and, or, XOR, input(), print(), pandas, CSV."
+)
 whisper_lock = Lock()
 
 
@@ -36,7 +40,8 @@ def load_faster_whisper():
     )
 
 
-def transcribe(media: Path) -> list[Segment]:
+def transcribe(media: Path, *, retry_noisy: bool = False) -> list[Segment]:
+    decoding = {"beam_size": 3, "initial_prompt": PYTHON_PROMPT} if retry_noisy else {}
     if whisper_backend() == "faster":
         from av.error import FFmpegError
         from faster_whisper.audio import decode_audio
@@ -49,8 +54,8 @@ def transcribe(media: Path) -> list[Segment]:
             raise MediaError("Audio hening. Pilih video dengan narasi yang terdengar.")
         with whisper_lock:
             segments, _ = load_faster_whisper().transcribe(
-                audio, language="id", task="transcribe", beam_size=1, best_of=1,
-                vad_filter=True, word_timestamps=True,
+                audio, language="id", task="transcribe", best_of=1,
+                vad_filter=True, word_timestamps=True, **(decoding or {"beam_size": 1}),
             )
             return [Segment(float(item.start), float(item.end), item.text) for item in segments]
 
@@ -63,5 +68,5 @@ def transcribe(media: Path) -> list[Segment]:
     if not audio.any():
         raise MediaError("Audio hening. Pilih video dengan narasi yang terdengar.")
     with whisper_lock:
-        result = load_whisper().transcribe(audio, language="id", task="transcribe", fp16=False)
+        result = load_whisper().transcribe(audio, language="id", task="transcribe", fp16=False, **decoding)
     return [Segment(item["start"], item["end"], item["text"]) for item in result["segments"]]

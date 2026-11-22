@@ -8,7 +8,7 @@ CODE_TOKEN = (
     rf"\b{QUALIFIED}\(\)|\b{QUALIFIED}(?=\()"
     r"|\b[A-Za-z]\w*_\w+\b"
     r"|\b(?:Python|pandas|CSV|DataFrame|input|print|int|float|bool|str|string|integer|boolean|type|True|False|None|"
-    r"dropna|fillna|isna|isnull|head|describe|subset|axis|inplace|index|dtype)\b"
+    r"dropna|fillna|isna|isnull|head|describe|subset|axis|inplace|index|dtype|not|or|and|XOR)\b|\^"
 )
 DECLARED = re.compile(rf"\b(?:variabel\s+({IDENTIFIER})|({IDENTIFIER})\s*=(?!=))")
 

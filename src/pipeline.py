@@ -7,9 +7,10 @@ from time import perf_counter
 import streamlit as st
 
 from src.media import MediaError, prepare_video
-from src.overview import SENTENCE_END, Overview, overview_context, prepare_evidence, summarize_overview, topic_tags
+from src.overview import Overview, prepare_evidence, summarize_overview
 from src.segmentation import Segment
-from src.step_sources import prepare_step_sources
+from src.step_sources import prepare_intro, prepare_step_sources
+from src.transcript_quality import is_readable_summary, readable_coverage
 from src.transcription import DEFAULT_WHISPER_BACKEND, WHISPER_MODEL, transcribe, whisper_backend
 from src.youtube import download_youtube_audio, fetch_youtube_captions, youtube_watch_url
 
@@ -53,6 +54,7 @@ class Guide:
     transcript: tuple[Segment, ...] = ()
     overview: Overview | None = None
     transcript_source: str | None = None
+    transcript_note: str = ""
 
     def find_steps(self, query: str) -> list[tuple[int, Step]]:
         terms = query.casefold().split()
@@ -74,28 +76,32 @@ def summarize_segments(segments: list[Segment], progress: Progress) -> tuple[lis
     from src.summarization import model_reference, summarize
 
     reference = model_reference()
-    tokenizer, model = load_cached_mbart(reference)
+    tokenizer, model = load_cached_mbart(reference) if any(source.text for source in sources) else (None, None)
     steps = []
     for index, source in enumerate(sources):
         progress(0.66 + 0.27 * index / len(sources), f"Meringkas langkah {index + 1} dari {len(sources)}…")
-        result = summarize(source.text, tokenizer, model, required_clause=source.required_clause)
         segment = source.segment
-        steps.append(Step(segment.start, segment.end, segment.transcript, result.text, result.is_excerpt, source.text))
+        text, excerpt = "", False
+        if source.text:
+            result = summarize(source.text, tokenizer, model, required_clause=source.required_clause)
+            text, excerpt = result.text, result.is_excerpt
+            if not is_readable_summary(text):
+                text = source.text if is_readable_summary(source.text) else ""
+                excerpt = bool(text)
+        steps.append(Step(segment.start, segment.end, segment.transcript, text, excerpt, source.text))
     progress(0.95, "Membuat pengantar video…")
-    evidence = tuple(step.model_input for step in steps)
-    tags = topic_tags(" ".join(evidence))
-    if {"input", "string", "integer", "float", "boolean"} <= tags:
-        context = "Video ini membahas cara membaca masukan pengguna dengan input() dan mengubah hasilnya dari string menjadi integer, float, atau boolean."
-    else:
-        sentences = tuple(sentence for item in evidence for sentence in SENTENCE_END.split(item))
-        context = SENTENCE_END.split(overview_context(sentences))[0]
-    intro = summarize(context, tokenizer, model)
-    return steps, reference, Overview(intro.text, evidence, intro.is_excerpt)
+    evidence = tuple(step.model_input for step in steps if step.summary)
+    context = prepare_intro(evidence)
+    intro = Overview("", evidence, False)
+    if context:
+        result = summarize(context, tokenizer, model, required_clause=context.removeprefix("Video ini membahas "))
+        intro = Overview(result.text, evidence, result.is_excerpt)
+    return steps, reference, intro
 
 
 def finish_guide(
     video: bytes | str, segments: list[Segment], started: float, transcribed_in: float, progress: Progress,
-    *, overview: bool, transcript_source: str | None = None,
+    *, overview: bool, transcript_source: str | None = None, transcript_note: str = "",
 ) -> Guide:
     summary_started = perf_counter()
     overview_result = None
@@ -122,6 +128,7 @@ def finish_guide(
             summarization=finished - summary_started,
         ),
         transcript=tuple(segments), overview=overview_result, transcript_source=transcript_source,
+        transcript_note=transcript_note,
     )
     progress(1.0, "Panduan siap.")
     return guide
@@ -152,6 +159,7 @@ def build_youtube_guide(
     progress(0.05, "Memeriksa link YouTube…")
     video = youtube_watch_url(link)
     transcript_source = None
+    transcript_note = ""
     with TemporaryDirectory(prefix="tutorial-youtube-") as scratch:
         transcription_started = perf_counter()
         captions = None
@@ -160,6 +168,20 @@ def build_youtube_guide(
             captions = fetch_youtube_captions(video, Path(scratch))
         if captions is not None:
             segments, transcript_source = captions
+            caption_coverage = readable_coverage(segments)
+            if len(segments) >= 12 and caption_coverage < 0.25:
+                progress(0.18, "Subtitle sulit dibaca. Memeriksa ulang audio dengan Whisper…")
+                try:
+                    audio = download_youtube_audio(video, Path(scratch))
+                    revised = transcribe(audio, retry_noisy=True)
+                except (MediaError, OSError, RuntimeError, ValueError):
+                    transcript_note = "Subtitle sulit dibaca dan transkripsi ulang gagal. Periksa segmen sumber."
+                else:
+                    if readable_coverage(revised) > caption_coverage:
+                        segments, transcript_source = revised, None
+                        transcript_note = "Audio ditranskripsi ulang dengan Whisper karena subtitle kurang terbaca."
+                    else:
+                        transcript_note = "Subtitle sulit dibaca. Hasil Whisper tidak memberi peningkatan keterbacaan."
         else:
             progress(0.18, "Mengambil audio YouTube…")
             audio = download_youtube_audio(video, Path(scratch))
@@ -169,4 +191,5 @@ def build_youtube_guide(
         transcribed_in = perf_counter() - transcription_started
     return finish_guide(
         video, segments, started, transcribed_in, progress, overview=overview, transcript_source=transcript_source,
+        transcript_note=transcript_note,
     )

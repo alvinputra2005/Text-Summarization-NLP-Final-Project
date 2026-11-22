@@ -2,8 +2,9 @@ from bisect import bisect_right
 from dataclasses import dataclass
 import re
 
-from src.overview import CHATTY, SENTENCE_END, clean_sentence
+from src.overview import CHATTY, SENTENCE_END, clean_sentence, join_topics, overview_context, topic_tags
 from src.segmentation import ACTION, Segment, group_segments, join_segments
+from src.transcript_quality import MAX_STEP_WORDS, is_readable_statement
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,26 @@ PANDAS_ACTIONS = (
     ),
 )
 CAUTION = re.compile(r"\b(?:jangan|tidak|bukan|belum|nggak|enggak|gak|tak)\b", re.IGNORECASE)
+BOOLEAN_CONTEXT = re.compile(r"\b(?:boolean|operasi logika|tabel kebenaran)\b", re.IGNORECASE)
+INTRO_TOPICS = {
+    "input": "masukan pengguna", "string": "teks", "integer": "bilangan bulat", "float": "bilangan desimal",
+    "boolean": "nilai Boolean", "file": "berkas data", "pandas": "pengolahan data dengan pandas",
+    "branch": "percabangan", "loop": "perulangan",
+}
+BOOLEAN_EXPERIMENTS = (
+    ("not", r"\btrue[ ,]+(?:di[ -]?)?not (?:jadi|menjadi) false\b|\bnot true\s*(?:jadi|menjadi|=)\s*false\b",
+     r"\bnot dulu\b|\b(?:uji|coba)\s+(?:operator\s+)?not\b",
+     "Uji operator not pada nilai Boolean. Operator ini membalik nilai, sehingga not True menghasilkan False dan not False menghasilkan True."),
+    ("or", r"\bfalse or false\s*(?:jadi|menjadi|=)\s*false\b",
+     r"\b(?:uji|coba)\s+(?:yang |operator )?or\b",
+     "Uji operator or pada dua nilai Boolean. Hasilnya True jika setidaknya satu masukan True, termasuk ketika keduanya True."),
+    ("and", r"\bfalse and (?:false|true)\s*(?:jadi|menjadi|=)\s*false\b",
+     r"\b(?:uji|coba)\s+(?:yang |operator )?and\b|\bsetelah or itu ada (?:and|n)\b",
+     "Uji operator and pada dua nilai Boolean. Hasilnya True hanya ketika kedua masukan True."),
+    ("xor", r"\btrue (?:xor|exor|\^) true\s*(?:jadi|menjadi|=)\s*false\b",
+     r"\b(?:selanjutnya|uji|coba)\b[^.!?]{0,65}\b(?:xor|exor)\b",
+     "Uji XOR dengan operator ^ pada dua nilai Boolean. Hasilnya True jika tepat satu masukan True. Dua masukan True menghasilkan False."),
+)
 
 
 def input_demonstrations(segments: list[Segment]) -> list[StepSource]:
@@ -100,9 +121,34 @@ def input_demonstrations(segments: list[Segment]) -> list[StepSource]:
     return demonstrations
 
 
+def boolean_demonstrations(segments: list[Segment]) -> list[StepSource]:
+    if not any(BOOLEAN_CONTEXT.search(segment.text) for segment in segments):
+        return []
+    sources = []
+    for _, result, introduction, wording in BOOLEAN_EXPERIMENTS:
+        for index, segment in enumerate(segments):
+            # Speech recognition can split one expression across two cues.
+            cues = segments[index:index + 2]
+            if not re.search(result, segment.text, re.IGNORECASE):
+                if len(cues) == 1 or re.search(result, cues[1].text, re.IGNORECASE):
+                    continue
+                if not re.search(result, " ".join(cue.text for cue in cues), re.IGNORECASE):
+                    continue
+            start = next((
+                offset for offset in range(index, -1, -1)
+                if segment.start - segments[offset].start <= 175
+                and re.search(introduction, segments[offset].text, re.IGNORECASE)
+            ), index)
+            end = index + (1 if re.search(result, segment.text, re.IGNORECASE) else 2)
+            # Preserve the truth condition, including which input combination produces it.
+            sources.append(StepSource(join_segments(segments[start:end]), wording, wording.partition(". ")[2]))
+            break
+    return sources
+
+
 def prepare_step_sources(segments: list[Segment]) -> list[StepSource]:
     groups = group_segments(segments)
-    demonstrations = input_demonstrations(segments)
+    demonstrations = input_demonstrations(segments) + boolean_demonstrations(segments)
     if len(demonstrations) >= 2:
         groups = [group for group in groups if ACTION.search(group.text)]
     else:
@@ -119,13 +165,29 @@ def prepare_step_sources(segments: list[Segment]) -> list[StepSource]:
             sources.append(StepSource(group, *pandas_action))
             continue
         sentences = [clean_sentence(sentence) for sentence in SENTENCE_END.split(text)]
-        sentences = [sentence for sentence in sentences if sentence and not sentence.endswith("?")]
+        sentences = [sentence for sentence in sentences if is_readable_statement(sentence)]
         actions = [sentence for sentence in sentences if ACTION.search(sentence)]
         useful = [sentence for sentence in sentences if not CHATTY.search(sentence)]
         picked = actions or useful[:2]
-        if picked:
-            sources.append(StepSource(group, " ".join(dict.fromkeys(picked))))
-
-    if not sources and groups:
-        sources = [StepSource(group, group.text) for group in groups]
+        selected = " ".join(dict.fromkeys(picked[:2]))
+        if len(selected.split()) > MAX_STEP_WORDS:
+            selected = picked[0]
+        sources.append(StepSource(group, selected))
     return sorted(sources, key=lambda source: source.segment.start)
+
+
+def prepare_intro(evidence: tuple[str, ...]) -> str:
+    if not evidence:
+        return ""
+    operators = [name.upper() if name == "xor" else name for name, _, _, wording in BOOLEAN_EXPERIMENTS if wording in evidence]
+    if operators and len(operators) == len(evidence):
+        return f"Video ini membahas operasi logika Python dengan menguji {join_topics(operators)} pada nilai Boolean."
+    tags = topic_tags(" ".join(evidence))
+    if {"input", "string", "integer", "float", "boolean"} <= tags:
+        return "Video ini membahas cara membaca masukan pengguna dengan input() dan mengubah hasilnya dari string menjadi integer, float, atau boolean."
+    sentences = tuple(sentence for item in evidence for sentence in SENTENCE_END.split(item))
+    context = SENTENCE_END.split(overview_context(sentences))[0]
+    if context.startswith("Video ini membahas ") and context not in sentences and is_readable_statement(context):
+        return context
+    topics = [description for name, description in INTRO_TOPICS.items() if name in tags]
+    return f"Video ini membahas {join_topics(topics)}." if topics else ""

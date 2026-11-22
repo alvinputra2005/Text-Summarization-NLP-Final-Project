@@ -7,9 +7,9 @@ Pengantar dan langkah muncul di samping video. Klik penanda waktu untuk melompat
 ## Pipeline
 
 1. Untuk MP4, FFprobe memeriksa video dan jalur audio. FFmpeg menyiapkan media untuk pemutar dan dekode audio.
-2. Untuk YouTube, aplikasi mencoba mengambil subtitle Indonesia dari video secara otomatis. Jika gagal atau subtitle tidak tersedia, `yt-dlp` mengambil audio agar Whisper membuat transkrip. MP4 memakai Whisper langsung.
+2. Untuk YouTube, aplikasi mencoba mengambil subtitle Indonesia. Jika subtitle tidak tersedia, `yt-dlp` mengambil audio untuk Whisper. Jika subtitle panjang sulit dibaca, aplikasi mencoba transkripsi ulang dengan konteks istilah Python dan memilih hasil yang lebih terbaca. MP4 memakai Whisper langsung.
 3. Aplikasi mengelompokkan narasi berdasarkan jeda dan perubahan tindakan. Pola khusus mengenali demonstrasi `input()` dan konversi tipe dari ucapan pemateri, termasuk hasil percobaan yang terdeteksi.
-4. mBART-50 meringkas teks tiap langkah. Jika hasilnya kehilangan detail penting, aplikasi memakai teks yang disiapkan dari segmen sumber. Waktu mulai dan selesai berasal dari segmen transkrip.
+4. mBART-50 meringkas teks tiap langkah. Aplikasi memeriksa detail penting dan keterbacaan keluarannya. Bagian yang sulit diringkas tetap bisa diputar dan dilihat di transkrip. Waktu mulai dan selesai berasal dari segmen transkrip.
 5. Streamlit menampilkan panduan, transkrip bertanda waktu, dan durasi proses. Skor WER, CER, dan ROUGE memakai teks acuan yang diberikan pengguna.
 
 ## Jalankan di Windows PowerShell
