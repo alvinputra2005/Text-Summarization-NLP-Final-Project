@@ -1,6 +1,7 @@
 from collections import Counter
 from dataclasses import dataclass
 import os
+from pathlib import Path
 import re
 
 import torch
@@ -38,12 +39,26 @@ def model_reference() -> str:
 
 
 def load_mbart(reference: str):
-    tokenizer = MBart50TokenizerFast.from_pretrained(reference, src_lang=INDONESIAN, tgt_lang=INDONESIAN)
+    adapter_path = Path(reference)
+    is_adapter = (adapter_path / "adapter_config.json").is_file()
+    base_reference = reference
+    revision = None
+    if is_adapter:
+        from peft import PeftConfig, PeftModel
+
+        config = PeftConfig.from_pretrained(adapter_path)
+        base_reference = config.base_model_name_or_path
+        revision = config.revision
+    tokenizer = MBart50TokenizerFast.from_pretrained(
+        base_reference, revision=revision, src_lang=INDONESIAN, tgt_lang=INDONESIAN,
+    )
     # The public repository publishes PyTorch weights. Load them directly with PyTorch >= 2.6.
     model = AutoModelForSeq2SeqLM.from_pretrained(
-        reference, use_safetensors=False if reference == PUBLIC_MODEL else None
-    ).to("cpu").eval()
-    return tokenizer, model
+        base_reference, revision=revision, use_safetensors=False if base_reference == PUBLIC_MODEL else None,
+    )
+    if is_adapter:
+        model = PeftModel.from_pretrained(model, adapter_path)
+    return tokenizer, model.to("cpu").eval()
 
 
 def generate_mbart(inputs, tokenizer, model, *, max_new_tokens: int = 56):

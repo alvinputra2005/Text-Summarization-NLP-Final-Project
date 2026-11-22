@@ -1,0 +1,26 @@
+{
+  "kind": "synthetic_pandas_smoke_fixture",
+  "steps": [
+    {
+      "start": 0.0,
+      "end": 9.864,
+      "transcript": "Baca data CSV dengan pandas. Tampilkan data penjualan dan perhatikan harga penghapus yang kosong.",
+      "summary": "Baca CSV dengan pandas dan periksa harga kosong.",
+      "terms": ["csv", "pandas"]
+    },
+    {
+      "start": 9.864,
+      "end": 18.352,
+      "transcript": "Selanjutnya, hapus baris dengan harga kosong. Gunakan fungsi drop na dan pilih kolom harga.",
+      "summary": "Gunakan dropna pada kolom harga untuk menghapus baris dengan harga kosong.",
+      "terms": ["dropna", "harga"]
+    },
+    {
+      "start": 18.352,
+      "end": 32.819,
+      "transcript": "Kemudian simpan hasil ke berkas CSV baru tanpa menyertakan indeks. Berkas baru berisi data yang sudah bersih.",
+      "summary": "Simpan hasil ke CSV baru tanpa menyertakan indeks.",
+      "terms": ["csv", "tanpa menyertakan indeks"]
+    }
+  ]
+}

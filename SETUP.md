@@ -30,6 +30,8 @@ $projectPython = '.\.venv\Scripts\python.exe'
 
 Skrip memakai `facebook/mbart-large-50` jika `MBART_MODEL_ID` kosong. Untuk checkpoint hasil fine-tuning, arahkan variabel itu ke folder yang berisi bobot dan tokenizer mBART-50, atau ke ID modelnya di Hugging Face. Periksa bahwa keluaran mencantumkan checkpoint yang diharapkan, `Tokenizer OK` dengan `id_ID`, dan `Model OK`.
 
+Untuk adapter LoRA lokal, pasang `requirements-training.txt` dan gunakan subfolder `adapter` sebagai `MBART_MODEL_ID`. Cara menguji dan membandingkan adapter tersedia di [catatan serah terima model](docs/model-handoff.md).
+
 ## 3. Uji FFprobe dan Whisper
 
 Simpan MP4 bernarasi pendek di `samples/local/tutorial.mp4`. Pastikan FFprobe menampilkan jalur `video` dan `audio`, lalu periksa bahwa Whisper menghasilkan teks dengan `start < end`.

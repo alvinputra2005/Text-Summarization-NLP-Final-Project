@@ -39,6 +39,8 @@ $env:MBART_MODEL_ID = '.\checkpoints\mbart-python'
 
 Hapus variabel dari sesi PowerShell untuk kembali ke model bawaan dengan `Remove-Item Env:MBART_MODEL_ID`. Tampilan panduan mencatat rujukan model yang digunakan.
 
+Untuk mencoba adapter LoRA lokal, pasang dependensi eksperimen dari `requirements-training.txt` dan arahkan `MBART_MODEL_ID` ke subfolder `adapter` hasil training. Loader membaca ID serta revisi model dasar dari `adapter_config.json`. Lihat [catatan eksperimen dan serah terima model](docs/model-handoff.md) untuk contoh perintah dan hasil evaluasi.
+
 ## Pengujian
 
 ```powershell
@@ -65,6 +67,8 @@ Gunakan batas 1.024 token masukan dan 128 token keluaran untuk percobaan konteks
 ```powershell
 .\.venv-rocm\Scripts\python.exe -u -m scripts.train_mbart_pilot --source-tokens 1024 --target-tokens 128 --compare-base --output-dir outputs/mbart-pilot-panjang
 ```
+
+Gunakan `--train-samples` dan `--decoder-layers` untuk menguji volume data serta jumlah layer terakhir decoder yang diberi LoRA. Pertahankan sampel validasi dan batas token ketika membandingkan hasil. Setelah konfigurasi dipilih, `scripts.evaluate_mbart` dapat menjalankan pembanding model dasar dan adapter pada split `test`.
 
 1. Pasang paket eksperimen dengan `& $projectPython -m pip install -r requirements-training.txt`. Lihat [panduan dataset](data/README.md) untuk split IndoSum dan Liputan6 yang siap dimuat, serta audio FLEURS dan video LUMINA dengan transkrip referensi.
 2. Untuk evaluasi tutorial Python dan pandas, anotasi `video_id`, ringkasan referensi, istilah teknis, dan rentang waktu demonstrasi. Pisahkan data latih, validasi, dan uji berdasarkan video utuh.

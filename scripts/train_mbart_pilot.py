@@ -1,10 +1,11 @@
-"""Run a one-epoch mBART LoRA pilot on the prepared IndoSum splits."""
+"""Run an mBART LoRA experiment on the prepared IndoSum splits."""
 
 import argparse
 import csv
 import json
 from pathlib import Path
 import random
+import re
 from statistics import mean
 
 import torch
@@ -51,6 +52,8 @@ def sample_split(path, limit):
         rows = [
             row for row in csv.DictReader(file) if row["text"].strip() and row["summary"].strip()
         ]
+    if limit is None:
+        return rows
     if len(rows) < limit:
         raise ValueError(f"{path} hanya berisi {len(rows)} contoh valid, perlu {limit}.")
     return random.Random(SEED).sample(rows, limit)
@@ -66,10 +69,8 @@ def encode(tokenizer, row, source_tokens, target_tokens):
     return inputs, labels
 
 
-def train_epoch(model, tokenizer, rows, source_tokens, target_tokens):
+def train_epoch(model, tokenizer, rows, source_tokens, target_tokens, optimizer, parameters):
     model.train()
-    parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
-    optimizer = torch.optim.AdamW(parameters, lr=LEARNING_RATE, weight_decay=0.01, foreach=False)
     losses = []
     for step, row in enumerate(rows, start=1):
         inputs, labels = encode(tokenizer, row, source_tokens, target_tokens)
@@ -111,6 +112,19 @@ def evaluate(model, tokenizer, rows, source_tokens=SOURCE_TOKENS, target_tokens=
     return {"validation_loss": mean(losses), **{name: mean(values) for name, values in scores.items()}}, predictions
 
 
+def evaluate_lead3(rows):
+    scorer = rouge_scorer.RougeScorer(ROUGE, use_stemmer=False)
+    scores = [
+        scorer.score(row["summary"], " ".join(re.split(r"(?<=[.!?])\s+", row["text"], maxsplit=3)[:3]))
+        for row in rows
+    ]
+    return {name: mean(score[name].fmeasure for score in scores) for name in ROUGE}
+
+
+def save_json(path, value):
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=Path("data/processed/indosum"))
@@ -119,10 +133,15 @@ def main():
     parser.add_argument("--validation-samples", type=int, default=20)
     parser.add_argument("--source-tokens", type=int, default=SOURCE_TOKENS)
     parser.add_argument("--target-tokens", type=int, default=TARGET_TOKENS)
+    parser.add_argument("--decoder-layers", type=int, default=1, help="Jumlah layer terakhir decoder yang diberi LoRA.")
+    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--patience", type=int, default=2, help="Jumlah epoch tanpa kenaikan ROUGE-L sebelum berhenti.")
     parser.add_argument("--compare-base", action="store_true", help="Evaluasi model dasar pada contoh validasi yang sama.")
     args = parser.parse_args()
     if min(args.train_samples, args.validation_samples) < 1:
         parser.error("Jumlah contoh train dan validation minimal 1.")
+    if not 1 <= args.epochs <= 5 or args.patience < 1:
+        parser.error("Gunakan 1 sampai 5 epoch dan patience minimal 1.")
     if args.output_dir.exists():
         parser.error(f"Folder output sudah ada. Pilih folder baru: {args.output_dir}")
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
@@ -138,64 +157,92 @@ def main():
         parser.error(f"Batas masukan harus antara 3 dan {position_limit} token.")
     if not 3 <= args.target_tokens < position_limit:
         parser.error(f"Batas keluaran harus antara 3 dan {position_limit - 1} token.")
+    if not 1 <= args.decoder_layers <= config.decoder_layers:
+        parser.error(f"Jumlah layer decoder harus antara 1 dan {config.decoder_layers}.")
     tokenizer = MBart50TokenizerFast.from_pretrained(
         PUBLIC_MODEL, revision=revision, src_lang=INDONESIAN, tgt_lang=INDONESIAN, local_files_only=True,
     )
     print(f"{torch.cuda.get_device_name(DEVICE)} | {PUBLIC_MODEL}@{revision}", flush=True)
     print(f"Batas token | masukan {args.source_tokens} | keluaran {args.target_tokens}", flush=True)
     base = load_base_model(revision)
-    last_layer = base.config.decoder_layers - 1
+    first_layer = config.decoder_layers - args.decoder_layers
+    layer_pattern = "|".join(str(index) for index in range(first_layer, config.decoder_layers))
     model = get_peft_model(
         base,
         LoraConfig(
             task_type=TaskType.SEQ_2_SEQ_LM,
             revision=revision,
-            target_modules=rf"model\.decoder\.layers\.{last_layer}\.(self_attn|encoder_attn)\.(q_proj|v_proj)",
+            target_modules=rf"model\.decoder\.layers\.({layer_pattern})\.(self_attn|encoder_attn)\.(q_proj|v_proj)",
             r=8,
             lora_alpha=16,
             lora_dropout=0.05,
         ),
     )
     model.print_trainable_parameters()
-    train_loss = train_epoch(model, tokenizer, train_rows, args.source_tokens, args.target_tokens)
+    parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
+    optimizer = torch.optim.AdamW(parameters, lr=LEARNING_RATE, weight_decay=0.01, foreach=False)
+    args.output_dir.mkdir(parents=True)
     adapter_path = args.output_dir / "adapter"
-    model.save_pretrained(adapter_path, save_embedding_layers=False)
-    tokenizer.save_pretrained(adapter_path)
-    model.load_adapter(adapter_path, adapter_name="reloaded")
-    model.set_adapter("reloaded")
+    lengths = (args.source_tokens, args.target_tokens)
+    history = []
+    best_epoch = None
+    best_predictions = None
+    for epoch in range(1, args.epochs + 1):
+        print(f"Epoch {epoch}/{args.epochs}", flush=True)
+        if epoch > 1:
+            random.Random(SEED + epoch - 1).shuffle(train_rows)
+        train_loss = train_epoch(model, tokenizer, train_rows, *lengths, optimizer, parameters)
+        metrics, predictions = evaluate(model, tokenizer, validation_rows, *lengths)
+        result = {"epoch": epoch, "train_loss": train_loss, **metrics}
+        history.append(result)
+        if best_epoch is None or result["rougeL"] > best_epoch["rougeL"]:
+            best_epoch = result
+            best_predictions = predictions
+            model.save_pretrained(adapter_path, save_embedding_layers=False)
+            tokenizer.save_pretrained(adapter_path)
+            save_json(args.output_dir / "predictions.json", best_predictions)
+        save_json(args.output_dir / "epoch_history.json", history)
+        print(json.dumps(result), flush=True)
+        if epoch - best_epoch["epoch"] >= args.patience:
+            print("Early stopping: ROUGE-L validasi tidak meningkat.", flush=True)
+            break
+
+    model.load_adapter(adapter_path, adapter_name="best")
+    model.set_adapter("best")
     model.delete_adapter("default")
-    print(f"Adapter berhasil dimuat ulang dari {adapter_path}. Validasi berjalan.", flush=True)
-    metrics, predictions = evaluate(model, tokenizer, validation_rows, args.source_tokens, args.target_tokens)
+    print(f"Adapter epoch {best_epoch['epoch']} berhasil dimuat ulang.", flush=True)
     report = {
         "checkpoint": f"{PUBLIC_MODEL}@{revision}",
         "train_samples": len(train_rows),
         "validation_samples": len(validation_rows),
         "seed": SEED,
-        "epochs": 1,
+        "epochs": len(history),
+        "max_epochs": args.epochs,
+        "patience": args.patience,
+        "best_epoch": best_epoch["epoch"],
         "batch_size": 1,
         "learning_rate": LEARNING_RATE,
+        "decoder_layers": args.decoder_layers,
+        "lora_rank": 8,
+        "lora_alpha": 16,
+        "lora_dropout": 0.05,
         "source_tokens": args.source_tokens,
         "target_tokens": args.target_tokens,
-        "train_loss": train_loss,
-        **metrics,
+        **{name: value for name, value in best_epoch.items() if name != "epoch"},
     }
-    (args.output_dir / "metrics.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    (args.output_dir / "predictions.json").write_text(
-        json.dumps(predictions, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
-    )
+    save_json(args.output_dir / "metrics.json", report)
     print(json.dumps(report, indent=2), flush=True)
     if args.compare_base:
+        save_json(args.output_dir / "lead3_metrics.json", evaluate_lead3(validation_rows))
         with model.disable_adapter():
             baseline, baseline_predictions = evaluate(
                 model, tokenizer, validation_rows, args.source_tokens, args.target_tokens, label="Model dasar",
             )
         baseline["identical_predictions"] = sum(
             trained["prediction"] == untrained["prediction"]
-            for trained, untrained in zip(predictions, baseline_predictions, strict=True)
+            for trained, untrained in zip(best_predictions, baseline_predictions, strict=True)
         )
-        (args.output_dir / "baseline_metrics.json").write_text(
-            json.dumps(baseline, indent=2) + "\n", encoding="utf-8",
-        )
+        save_json(args.output_dir / "baseline_metrics.json", baseline)
         print(json.dumps(baseline, indent=2), flush=True)
 
 
