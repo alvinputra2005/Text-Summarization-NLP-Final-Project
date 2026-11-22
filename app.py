@@ -188,10 +188,11 @@ def show_analysis(guide: Guide) -> None:
     engine = "faster-whisper · CPU INT8" if guide.transcription_backend == "faster" else "OpenAI Whisper · CPU"
     source = guide.transcript_source or f"Whisper {Path(guide.transcription_model).name} · {engine} · {guide.transcription_beam_size} beam"
     media = "YouTube" if isinstance(guide.video, str) else "MP4 tervalidasi"
+    preprocessing = getattr(guide, "preprocessing", "Tidak tercatat")
     outputs = (
         ("Sumber video", media),
         ("Transkrip", f"{len(guide.transcript)} segmen · {len(transcript.split())} kata"),
-        ("Preprocessing", f"{guide.preprocessing} · {len(guide.steps)} bagian"),
+        ("Preprocessing", f"{preprocessing} · {len(guide.steps)} bagian"),
         ("mBART-50", f"{len(model_input.split())} kata sebagai masukan" if model_input.strip() else "Tidak ada masukan yang layak"),
         ("Ringkasan", f"{step_count} segmen diringkas" if step_count else "Tidak tersedia"),
     )
@@ -217,8 +218,9 @@ def show_analysis(guide: Guide) -> None:
 def show_pipeline_details(guide: Guide, source: str) -> None:
     import altair as alt
 
-    if guide.preprocessing_note:
-        st.caption(guide.preprocessing_note)
+    preprocessing_note = getattr(guide, "preprocessing_note", "")
+    if preprocessing_note:
+        st.caption(preprocessing_note)
     if guide.timings is not None:
         st.markdown("**Waktu per tahap**")
         stages = ["Media", "Transkrip", "Preprocessing dan ringkasan"]

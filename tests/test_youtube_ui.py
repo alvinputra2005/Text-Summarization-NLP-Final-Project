@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -20,6 +21,19 @@ class YouTubeConfirmationTests(unittest.TestCase):
         self.assertFalse(app.exception)
         self.assertTrue(any("Subtitle bahasa Indonesia belum ditemukan" in warning.value for warning in app.warning))
         return app
+
+    def test_existing_session_guide_without_preprocessing_fields_still_renders(self):
+        fields = vars(Guide(self.inspection.video, [], "test-mbart", status="unclear")).copy()
+        fields.pop("preprocessing")
+        fields.pop("preprocessing_note")
+        app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
+        app.session_state["guide"] = SimpleNamespace(**fields, summary_points=())
+        app.session_state["video_name"] = "YouTube"
+        app.session_state["seek_start"] = None
+        app.session_state["seek_revision"] = 0
+        app.run()
+        self.assertFalse(app.exception)
+        self.assertTrue(any("Tidak tercatat" in item.value for item in app.get("html")))
 
     def test_missing_subtitles_await_approval_and_cancel_skips_audio(self):
         with patch("src.pipeline.inspect_youtube", return_value=self.inspection), patch("src.pipeline.build_youtube_guide") as build:
