@@ -56,7 +56,7 @@ def process_guide(name: str, build: Callable[[Progress], Guide]) -> None:
 def upload_view() -> None:
     with st.container(key="page-heading"):
         st.title("Buat panduan praktik")
-        st.write("Buat ringkasan keseluruhan dari video tutorial berbahasa Indonesia.")
+        st.write("Buat panduan langkah demi langkah dari video tutorial berbahasa Indonesia.")
 
     with st.container(key="upload-layout"):
         sources, notes = st.columns([5, 3], gap="large")
@@ -68,7 +68,7 @@ def upload_view() -> None:
                     "Buat Panduan", type="primary", key="make-mp4-guide", disabled=video is None,
                 )
                 if make_guide and video is not None:
-                    process_guide(video.name, lambda progress: build_guide(video.getvalue(), progress, overview=True))
+                    process_guide(video.name, lambda progress: build_guide(video.getvalue(), progress))
 
             with youtube_tab, st.container(key="youtube-panel", border=True):
                 link = st.text_input(
@@ -80,7 +80,7 @@ def upload_view() -> None:
                     disabled=not link.strip(),
                 )
                 if make_guide and link.strip():
-                    process_guide("YouTube", lambda progress: build_youtube_guide(link, progress, overview=True))
+                    process_guide("YouTube", lambda progress: build_youtube_guide(link, progress, prefer_captions=True))
         with notes, st.container(key="upload-notes"):
             st.subheader("Sebelum mulai")
             st.markdown(
@@ -121,18 +121,16 @@ def show_evaluation(transcript: str, summary: str) -> None:
 def show_analysis(guide: Guide) -> None:
     import altair as alt
 
-    result = guide.overview
-    if result is None:
-        return
     transcript = " ".join(segment.text for segment in guide.transcript)
+    summary = " ".join(step.summary for step in guide.steps)
     engine = "faster-whisper · CPU INT8" if guide.transcription_backend == "faster" else "OpenAI Whisper · CPU"
     source = guide.transcript_source or f"Whisper {guide.transcription_model} · {engine}"
     media = "YouTube" if isinstance(guide.video, str) else "MP4 tervalidasi"
     outputs = (
         ("Sumber video", media),
         ("Transkrip", f"{len(guide.transcript)} segmen · {len(transcript.split())} kata"),
-        ("Teks terpilih", f"{len(result.evidence)} kalimat untuk mBART"),
-        ("Ringkasan", f"{len(result.text.split())} kata"),
+        ("Teks terpilih", f"{len(guide.steps)} bagian untuk mBART"),
+        ("Panduan", f"{len(guide.steps)} langkah · {len(summary.split())} kata"),
     )
     with st.container(key="analysis-panel"):
         st.subheader("Analisis pemrosesan")
@@ -187,22 +185,25 @@ def show_analysis(guide: Guide) -> None:
                 + "</div>"
             )
             st.markdown("**Teks yang dipilih**")
-            st.html("<ol>" + "".join(f"<li>{escape(sentence)}</li>" for sentence in result.evidence) + "</ol>")
+            st.html("<ol>" + "".join(
+                f"<li>{timestamp(step.start)} · {escape(step.model_input)}</li>" for step in guide.steps
+            ) + "</ol>")
             st.caption(f"Model ringkasan {guide.model}")
-            if result.is_excerpt:
-                st.caption("Ringkasan disusun dari pokok bahasan terpilih karena keluaran mBART masih perlu pemeriksaan isi atau gaya.")
-        show_evaluation(transcript, result.text)
+            excerpts = sum(step.is_excerpt for step in guide.steps)
+            if excerpts:
+                st.caption(f"{excerpts} dari {len(guide.steps)} langkah memakai teks sumber setelah pemeriksaan keluaran mBART.")
+        show_evaluation(transcript, summary)
 
 
 def guide_view(guide: Guide) -> None:
-    if guide.overview is None:
+    if not guide.steps:
         reset_guide()
         st.rerun()
         return
     with st.container(key="guide-heading"):
         title, controls = st.columns([4, 1], vertical_alignment="center")
         with title:
-            st.title("Ringkasan video")
+            st.title("Panduan video")
             st.html(f'<p class="video-name">{escape(st.session_state.video_name)}</p>')
         with controls:
             st.button("Ganti video", on_click=reset_guide)
@@ -218,8 +219,18 @@ def guide_view(guide: Guide) -> None:
             if isinstance(guide.video, str):
                 st.link_button("Buka di YouTube", f"{guide.video}&t={int(start)}s")
         with summary, st.container(key="summary-pane"):
-            st.subheader("Ringkasan keseluruhan")
-            st.html(f'<p class="overview-copy">{escape(guide.overview.text)}</p>')
+            st.subheader("Langkah dalam video")
+            with st.container(key="timeline"):
+                for index, step in enumerate(guide.steps):
+                    clock, action = st.columns([1, 5], gap="small")
+                    with clock:
+                        st.button(
+                            timestamp(step.start), key=f"seek-step-{index}", type="tertiary",
+                            help=f"Putar bagian {timestamp(step.start)}–{timestamp(step.end)}",
+                            on_click=seek, args=(step.start,),
+                        )
+                    with action:
+                        st.html(f'<p class="step-copy">{escape(step.summary)}</p>')
     show_analysis(guide)
 
 

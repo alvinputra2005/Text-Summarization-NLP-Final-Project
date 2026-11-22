@@ -120,11 +120,39 @@
   padding-left: 1.25rem;
 }
 
-.overview-copy {
+.st-key-timeline {
+  gap: 0;
+  max-height: 42rem;
+  overflow-y: auto;
+}
+
+.st-key-timeline [data-testid="stHorizontalBlock"] {
+  flex-wrap: nowrap;
+  align-items: baseline;
+  padding: 0.625rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.st-key-timeline [data-testid="stColumn"]:first-child {
+  flex: 0 0 3.75rem;
+  min-width: 3.75rem;
+}
+
+.st-key-timeline [data-testid="stColumn"]:last-child {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.st-key-timeline button {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.step-copy {
   margin: 0;
   font-size: 1rem;
-  line-height: 1.65;
-  white-space: pre-line;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -235,6 +263,10 @@
   .st-key-summary-pane {
     border-left: 0;
     padding-left: 0;
+  }
+
+  .st-key-timeline {
+    max-height: none;
   }
 
   .st-key-analysis-panel .pipeline-flow {

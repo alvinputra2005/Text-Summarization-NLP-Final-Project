@@ -8,7 +8,8 @@ import streamlit as st
 
 from src.media import MediaError, prepare_video
 from src.overview import Overview, prepare_evidence, summarize_overview
-from src.segmentation import Segment, group_segments
+from src.segmentation import Segment
+from src.step_sources import prepare_step_sources
 from src.transcription import DEFAULT_WHISPER_BACKEND, WHISPER_MODEL, transcribe, whisper_backend
 from src.youtube import download_youtube_audio, fetch_youtube_captions, youtube_watch_url
 
@@ -30,6 +31,7 @@ class Step:
     transcript: str
     summary: str
     is_excerpt: bool
+    model_input: str = ""
 
 
 @dataclass(frozen=True)
@@ -64,8 +66,8 @@ class Guide:
 
 def summarize_segments(segments: list[Segment], progress: Progress) -> tuple[list[Step], str]:
     progress(0.58, "Mengelompokkan transkrip per langkah…")
-    groups = group_segments(segments)
-    if not groups:
+    sources = prepare_step_sources(segments)
+    if not sources:
         raise MediaError("Narasi belum terdeteksi. Coba video dengan suara yang lebih jelas.")
 
     progress(0.64, "Memuat mBART-50…")
@@ -74,10 +76,11 @@ def summarize_segments(segments: list[Segment], progress: Progress) -> tuple[lis
     reference = model_reference()
     tokenizer, model = load_cached_mbart(reference)
     steps = []
-    for index, group in enumerate(groups):
-        progress(0.66 + 0.32 * index / len(groups), f"Meringkas langkah {index + 1} dari {len(groups)}…")
-        result = summarize(group.text, tokenizer, model)
-        steps.append(Step(group.start, group.end, group.transcript, result.text, result.is_excerpt))
+    for index, source in enumerate(sources):
+        progress(0.66 + 0.32 * index / len(sources), f"Meringkas langkah {index + 1} dari {len(sources)}…")
+        result = summarize(source.text, tokenizer, model, required_clause=source.required_clause)
+        segment = source.segment
+        steps.append(Step(segment.start, segment.end, segment.transcript, result.text, result.is_excerpt, source.text))
     return steps, reference
 
 
@@ -133,7 +136,9 @@ def build_guide(video: bytes, progress: Progress, *, overview: bool = False) -> 
     return finish_guide(playback, segments, started, transcribed_in, progress, overview=overview)
 
 
-def build_youtube_guide(link: str, progress: Progress, *, overview: bool = False) -> Guide:
+def build_youtube_guide(
+    link: str, progress: Progress, *, overview: bool = False, prefer_captions: bool = False,
+) -> Guide:
     started = perf_counter()
     progress(0.05, "Memeriksa link YouTube…")
     video = youtube_watch_url(link)
@@ -141,7 +146,7 @@ def build_youtube_guide(link: str, progress: Progress, *, overview: bool = False
     with TemporaryDirectory(prefix="tutorial-youtube-") as scratch:
         transcription_started = perf_counter()
         captions = None
-        if overview:
+        if overview or prefer_captions:
             progress(0.12, "Memeriksa subtitle bahasa Indonesia…")
             captions = fetch_youtube_captions(video, Path(scratch))
         if captions is not None:

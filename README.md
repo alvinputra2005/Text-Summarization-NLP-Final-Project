@@ -1,16 +1,16 @@
 # Panduan Praktik Python
 
-Aplikasi Streamlit lokal yang membuat satu ringkasan dari video tutorial Python berbahasa Indonesia. Pilih **Unggah MP4** atau tempel alamat video publik di **Link YouTube**, lalu tekan **Buat Panduan**.
+Aplikasi Streamlit lokal yang membuat panduan bertanda waktu dari video tutorial Python berbahasa Indonesia. Pilih **Unggah MP4** atau tempel alamat video publik di **Link YouTube**, lalu tekan **Buat Panduan**.
 
-Ringkasan muncul di samping video. Di bawahnya, **Analisis pemrosesan** menampilkan alur, keluaran, dan waktu tiap tahap. Buka **Hasil tiap tahap** untuk melihat transkrip, memutar dari awal segmen, serta memeriksa kalimat yang masuk ke mBART. Isi **Evaluasi dengan teks acuan** jika punya transkrip atau ringkasan referensi untuk menghitung WER, CER, dan ROUGE.
+Langkah muncul di samping video. Klik penanda waktu untuk melompat ke bagian yang menjelaskan tindakan dan hasilnya. Di bawah video, **Analisis pemrosesan** menampilkan alur, keluaran, dan waktu tiap tahap. Buka **Hasil tiap tahap** untuk melihat transkrip dan teks yang masuk ke mBART. Isi **Evaluasi dengan teks acuan** untuk menghitung WER, CER, dan ROUGE. ROUGE memakai gabungan teks langkah dalam urutan video.
 
 ## Pipeline
 
 1. Untuk MP4, FFprobe memeriksa video dan jalur audio. FFmpeg menyiapkan media untuk pemutar dan dekode audio.
 2. Untuk YouTube, aplikasi mencoba mengambil subtitle Indonesia dari video secara otomatis. Jika gagal atau subtitle tidak tersedia, `yt-dlp` mengambil audio agar Whisper membuat transkrip. MP4 memakai Whisper langsung.
-3. Aplikasi menyiapkan kalimat dari berbagai bagian transkrip dan merapikan beberapa frasa teknis umum sebelum memasukkannya ke model.
-4. Aplikasi merangkai pokok bahasan dan hubungan antarkonsep sebagai masukan mBART-50. Pemeriksaan keluaran menjaga topik dan detail teknis serta menyaring gaya instruksi berurutan. Jika pemeriksaan gagal, aplikasi menampilkan ikhtisar yang dirangkai dari pokok bahasan tersebut.
-5. Streamlit menampilkan ringkasan, transkrip bertanda waktu, dan durasi proses. Skor WER, CER, dan ROUGE memakai teks acuan yang diberikan pengguna.
+3. Aplikasi mengelompokkan narasi berdasarkan jeda dan perubahan tindakan. Pola khusus mengenali demonstrasi `input()` dan konversi tipe dari ucapan pemateri, termasuk hasil percobaan yang terdeteksi.
+4. mBART-50 meringkas teks tiap langkah. Jika hasilnya kehilangan detail penting, aplikasi memakai teks yang disiapkan dari segmen sumber. Waktu mulai dan selesai berasal dari segmen transkrip.
+5. Streamlit menampilkan panduan, transkrip bertanda waktu, dan durasi proses. Skor WER, CER, dan ROUGE memakai teks acuan yang diberikan pengguna.
 
 ## Jalankan di Windows PowerShell
 

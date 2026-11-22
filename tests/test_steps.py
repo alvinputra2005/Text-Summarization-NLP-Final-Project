@@ -6,7 +6,8 @@ from transformers import BatchEncoding
 
 from src.pipeline import Guide, Step
 from src.segmentation import Segment, group_segments
-from src.summarization import generate_mbart, model_reference, summary_preserves_details
+from src.step_sources import prepare_step_sources
+from src.summarization import generate_mbart, model_reference, summarize, summary_preserves_details
 
 
 class SegmentationTests(unittest.TestCase):
@@ -36,6 +37,43 @@ class GuideTests(unittest.TestCase):
         self.assertEqual(guide.find_steps("DROPNA harga"), [(1, clean)])
         self.assertEqual(guide.find_steps("dropna CSV"), [])
         self.assertEqual(guide.find_steps(" "), [(0, read), (1, clean)])
+
+
+class StepSourceTests(unittest.TestCase):
+    def test_demonstrations_keep_transcript_times_and_test_values(self):
+        segments = [
+            Segment(0, 4, "Assalamualaikum teman-teman, kembali lagi di tutorial."),
+            Segment(10, 14, "Data sama dengan, kita bikin input pakai kurung."),
+            Segment(14, 19, "Biasanya teks pertanyaan. Misalkan kita tulis masukkan data."),
+            Segment(30, 35, "Kalau kita masukin input di sini 42 misalkan ya."),
+            Segment(35, 39, "Data yang keluar adalah STR."),
+            Segment(50, 55, "Berarti ini harus kita casting dulu ke integer."),
+            Segment(55, 60, "Baru casting ke boolean. Satu jadi true, ya. Kalau ini nol jadi false."),
+        ]
+        prompt, example, binary = prepare_step_sources(segments)
+        self.assertEqual([(item.segment.start, item.segment.end) for item in (prompt, example, binary)], [
+            (10, 19), (30, 39), (50, 60),
+        ])
+        self.assertIn("42", example.text)
+        self.assertIn("Data yang keluar adalah STR.", example.segment.transcript)
+        self.assertIn("0 menjadi False dan 1 menjadi True", binary.text)
+
+    def test_pandas_actions_are_still_separate(self):
+        steps = prepare_step_sources([
+            Segment(2, 5, "Baca CSV dengan pandas."),
+            Segment(5, 8, "Hapus baris dengan harga kosong."),
+        ])
+        self.assertEqual([step.text for step in steps], ["Baca CSV dengan pandas.", "Hapus baris dengan harga kosong."])
+
+    def test_dropna_recovers_a_function_split_by_asr(self):
+        [step] = prepare_step_sources([
+            Segment(10, 16, "Selanjutnya hapus baris dengan hanka kosong gunakan fungsi drop na dan pilih olom harga."),
+        ])
+        self.assertEqual(step.text, "Hapus baris yang harganya kosong dengan dropna() pada kolom harga.")
+        [caution] = prepare_step_sources([
+            Segment(10, 16, "Jangan hapus baris yang kosong dengan dropna lalu pilih kolom harga."),
+        ])
+        self.assertTrue(caution.text.startswith("Jangan hapus"))
 
 
 class SummaryTests(unittest.TestCase):
@@ -75,6 +113,18 @@ class SummaryTests(unittest.TestCase):
         source = "Jangan hapus baris kosong. Simpan hasil ke CSV."
         self.assertTrue(summary_preserves_details(source, source))
         self.assertFalse(summary_preserves_details(source, "Hapus baris kosong. Jangan simpan hasil ke CSV."))
+
+    def test_step_preserves_the_boolean_result_and_conversion(self):
+        source = "Masukan diproses dengan int() dan bool(). Hasilnya 0 menjadi False dan 1 menjadi True."
+        tokenizer = Mock()
+        tokenizer.return_value = {"input_ids": Mock(shape=(1, 30))}
+        tokenizer.decode.return_value = "Masukan diproses dengan int() dan bool(). Hasilnya 0 menjadi True dan 1 menjadi False."
+        model = Mock()
+        model.config.max_position_embeddings = 1024
+        with patch("src.summarization.generate_mbart", return_value=[[1]]):
+            result = summarize(source, tokenizer, model, required_clause="0 menjadi False dan 1 menjadi True")
+        self.assertTrue(result.is_excerpt)
+        self.assertEqual(result.text, source)
 
 
 if __name__ == "__main__":

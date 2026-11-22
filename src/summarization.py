@@ -75,15 +75,17 @@ def generate_mbart(inputs, tokenizer, model, *, max_new_tokens: int = 56):
         )
 
 
-def summarize(text: str, tokenizer, model) -> Summary:
+def summarize(text: str, tokenizer, model, *, required_clause: str = "") -> Summary:
     inputs = tokenizer(text, return_tensors="pt", verbose=False)
     if inputs["input_ids"].shape[1] > model.config.max_position_embeddings:
         return Summary(text, is_excerpt=True)
     output = generate_mbart(inputs, tokenizer, model)
     generated = " ".join(tokenizer.decode(output[0], skip_special_tokens=True).split())
-    if summary_preserves_details(text, generated):
+    if required_clause.casefold() in generated.casefold() and summary_preserves_details(text, generated):
         return Summary(generated)
 
+    if required_clause:
+        return Summary(text, is_excerpt=True)
     sentences = re.split(r"(?<=[.!?])\s+", text)
     excerpt = " ".join(sentence for sentence in sentences if ACTION.search(sentence) or any(details(sentence)))
     excerpt = excerpt or sentences[0]
@@ -101,6 +103,8 @@ def details(text: str) -> tuple[set[str], set[str], set[str], Counter[str]]:
 
 def summary_preserves_details(source: str, summary: str) -> bool:
     if not summary or len(summary.split()) > min(35, len(source.split())):
+        return False
+    if summary[-1] not in ".!?" or re.search(r"\b(\w+)(?:[ ,]+\1){2,}\b", summary, re.IGNORECASE):
         return False
     if details(source) != details(summary):
         return False
