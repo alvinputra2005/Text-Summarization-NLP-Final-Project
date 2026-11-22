@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 from src.media import MediaError
 from src.pipeline import Step, build_youtube_guide
 from src.segmentation import Segment
-from src.youtube import download_youtube_audio, youtube_watch_url
+from src.youtube import download_youtube_audio, parse_youtube_captions, youtube_watch_url
 
 
 class YouTubeTests(unittest.TestCase):
@@ -75,3 +75,21 @@ class YouTubeTests(unittest.TestCase):
         self.assertEqual(guide.steps, steps)
         self.assertEqual(guide.transcription_model, "base")
         progress.assert_called_with(1.0, "Panduan siap.")
+
+    def test_reads_caption_segments_in_seconds_and_ignores_empty_events(self):
+        document = {"events": [
+            {"tStartMs": 1000, "dDurationMs": 500, "segs": [{"utf8": " "}]},
+            {"tStartMs": 15200, "dDurationMs": 2800, "segs": [{"utf8": "Gunakan "}, {"utf8": "input()."}]},
+        ]}
+        self.assertEqual(parse_youtube_captions(document), [Segment(15.2, 18, "Gunakan input().")])
+
+    def test_overview_prefers_captions_and_skips_audio_and_whisper(self):
+        captions = [Segment(10, 15, "Gunakan input().")]
+        with patch("src.pipeline.fetch_youtube_captions", return_value=(captions, "Subtitle otomatis YouTube")), patch(
+            "src.pipeline.download_youtube_audio",
+        ) as download, patch("src.pipeline.transcribe") as transcribe, patch("src.pipeline.finish_guide") as finish:
+            build_youtube_guide("https://youtu.be/M7lc1UVf-VE", Mock(), overview=True)
+        download.assert_not_called()
+        transcribe.assert_not_called()
+        self.assertEqual(finish.call_args.args[1], captions)
+        self.assertEqual(finish.call_args.kwargs["transcript_source"], "Subtitle otomatis YouTube")

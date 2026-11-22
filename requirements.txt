@@ -1,6 +1,9 @@
 streamlit>=1.45,<2
 openai-whisper
+faster-whisper>=1.2,<2
 torch>=2.6,<3
 transformers>=4.52,<5
 sentencepiece
 yt-dlp[default]>=2025.11.12
+jiwer
+rouge-score

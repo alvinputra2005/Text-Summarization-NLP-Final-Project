@@ -7,22 +7,11 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 import random
-import re
 from statistics import mean
+from time import perf_counter
 
-import jiwer
-
-from src.transcription import WHISPER_MODEL, transcribe
-
-
-def normalize(text):
-    return " ".join(re.findall(r"[^\W_]+", text.casefold()))
-
-
-def speech_metrics(references, predictions):
-    references = [normalize(text) for text in references]
-    predictions = [normalize(text) for text in predictions]
-    return {"wer": jiwer.wer(references, predictions), "cer": jiwer.cer(references, predictions)}
+from src.evaluation import normalize, speech_metrics
+from src.transcription import WHISPER_MODEL, transcribe, whisper_backend
 
 
 def evaluate_whisper(manifest, limit):
@@ -34,15 +23,21 @@ def evaluate_whisper(manifest, limit):
     results = []
     for item in sample:
         media = manifest.parent / (item.get("audio_path") or item["video_path"])
+        started = perf_counter()
         prediction = " ".join(segment.transcript for segment in transcribe(media)).strip()
-        results.append({"id": item["id"], "reference": item["transcript"], "prediction": prediction})
+        results.append({
+            "id": item["id"], "reference": item["transcript"], "prediction": prediction,
+            "transcription_seconds": perf_counter() - started,
+        })
         print(f"Whisper {len(results)}/{limit}", flush=True)
     return {
         "manifest": str(manifest),
         "whisper": WHISPER_MODEL,
+        "whisper_backend": whisper_backend(),
         "language": "id",
         "seed": 42,
         "samples": limit,
+        "transcription_seconds": sum(item["transcription_seconds"] for item in results),
         **speech_metrics([item["reference"] for item in results], [item["prediction"] for item in results]),
         "predictions": results,
     }
@@ -105,7 +100,10 @@ def evaluate_tutorial(video, reference_path):
     return {
         "fixture": reference["kind"],
         "video": str(video),
-        "whisper": WHISPER_MODEL,
+        "whisper": guide.transcription_model,
+        "whisper_backend": guide.transcription_backend,
+        "processing_seconds": guide.processing_seconds,
+        "timings": asdict(guide.timings) if guide.timings is not None else None,
         "mbart": guide.model,
         "reference_steps": len(expected),
         "predicted_steps": len(guide.steps),

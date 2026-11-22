@@ -52,9 +52,9 @@ $transcript.segments | Select-Object -First 3 start, end, text | Format-Table -W
 ```
 
 - Unggah MP4 dan tekan **Buat Panduan**. Periksa bahwa model yang ditampilkan sesuai konfigurasi.
-- Buka tab **Link YouTube**, tempel link video publik bernarasi, lalu tekan **Buat Panduan**. Periksa bahwa transkrip dan penanda waktu muncul setelah Whisper memproses audio.
-- Klik setiap waktu dan klik ulang salah satu penanda. Pastikan pemutar berpindah ke waktu sumber tanpa tahap transkripsi atau peringkasan berjalan lagi.
-- Buka **Lihat transkrip** dan cocokkan ucapan sumber dengan langkahnya.
+- Buka tab **Link YouTube**, tempel link video publik bernarasi, lalu tekan **Buat Panduan**. Di **Hasil tiap tahap**, periksa apakah sumber transkripnya subtitle YouTube atau Whisper.
+- Pilih segmen dan tekan **Putar segmen**. Pastikan pemutar berpindah ke waktu sumber dengan memakai hasil yang sudah tersedia.
+- Coba **Evaluasi dengan teks acuan** dengan transkrip atau ringkasan referensi yang sesuai.
 - Pilih **Ganti video** dan pastikan hasil sebelumnya hilang. Uji pesan untuk MP4 rusak atau tanpa audio.
 
 `.gitignore` mencakup lingkungan Python, unggahan, checkpoint, keluaran, video contoh lokal, dan rahasia konfigurasi. Jika model gagal dimuat, periksa akses ke Hugging Face, ruang cache, serta kelengkapan tokenizer dan bobot pada checkpoint yang dipilih.

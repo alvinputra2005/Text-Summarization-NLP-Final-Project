@@ -1,4 +1,6 @@
+import json
 import logging
+from math import isfinite
 from pathlib import Path
 import re
 import subprocess
@@ -6,6 +8,7 @@ import sys
 from urllib.parse import parse_qs, urlsplit
 
 from src.media import MediaError
+from src.segmentation import Segment
 
 
 log = logging.getLogger(__name__)
@@ -75,3 +78,59 @@ def download_youtube_audio(video: str, directory: Path) -> Path:
         if audio.parent == directory.resolve() and audio.is_file() and audio.stat().st_size > 0:
             return audio
     raise MediaError("Audio belum tersedia. Pilih video YouTube yang sudah selesai, seperti rekaman tutorial.")
+
+
+def parse_youtube_captions(document: dict) -> list[Segment]:
+    segments = []
+    for event in document.get("events", []):
+        try:
+            start = float(event["tStartMs"]) / 1000
+            duration = float(event["dDurationMs"]) / 1000
+            text = " ".join("".join(part.get("utf8", "") for part in event.get("segs", [])).split())
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not text or not isfinite(start + duration) or start < 0 or duration <= 0:
+            continue
+        end = start + duration
+        if segments and start <= segments[-1].end and text == segments[-1].transcript:
+            previous = segments[-1]
+            segments[-1] = Segment(previous.start, max(end, previous.end), text)
+        else:
+            segments.append(Segment(start, end, text))
+    return sorted(segments, key=lambda item: item.start)
+
+
+def fetch_youtube_captions(video: str, directory: Path) -> tuple[list[Segment], str] | None:
+    command = [
+        sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-playlist", "--js-runtimes", "node",
+        "--no-progress", "--encoding", "utf-8", "--socket-timeout", "8", "--retries", "1",
+        "--match-filter", "!is_live", "--skip-download", "--write-subs", "--write-auto-subs",
+        "--sub-langs", "id,id-orig", "--sub-format", "json3",
+        "--output", "captions.%(ext)s", "--print", "%(language)s|%(subtitles.id.0.ext)s",
+        "--no-simulate", "--", video,
+    ]
+    try:
+        result = subprocess.run(
+            command, cwd=directory, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=25,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+
+    # An Indonesian display track can be an automatic translation. Prefer the original track.
+    metadata = result.stdout.strip().splitlines()
+    language, _, authored = metadata[0].partition("|") if metadata else ("", "", "")
+    tracks = [("id-orig", "Subtitle otomatis YouTube")]
+    if authored and authored != "NA":
+        tracks.insert(0, ("id", "Subtitle Indonesia YouTube"))
+    elif language == "id":
+        tracks.append(("id", "Subtitle otomatis YouTube"))
+    for locale, source in tracks:
+        try:
+            document = json.loads((directory / f"captions.{locale}.json3").read_text(encoding="utf-8-sig"))
+            segments = parse_youtube_captions(document)
+        except (OSError, ValueError, AttributeError):
+            continue
+        if segments:
+            return segments, source
+    return None

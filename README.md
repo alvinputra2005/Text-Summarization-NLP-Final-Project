@@ -1,16 +1,16 @@
 # Panduan Praktik Python
 
-Aplikasi Streamlit lokal yang mengubah video tutorial Python berbahasa Indonesia menjadi panduan praktik dengan penanda waktu. Pilih **Unggah MP4** untuk memilih berkas video, atau pilih **Link YouTube** dan tempel alamat satu video publik bernarasi. Tekan **Buat Panduan** agar Whisper mentranskripsikan audio dan mBART meringkasnya. Lalu cari kata seperti `dropna` di **Cari langkah** dan tekan Enter.
+Aplikasi Streamlit lokal yang membuat satu ringkasan dari video tutorial Python berbahasa Indonesia. Pilih **Unggah MP4** atau tempel alamat video publik di **Link YouTube**, lalu tekan **Buat Panduan**.
 
-Klik penanda waktu untuk memutar langkah, buka **Lihat transkrip** untuk memeriksa teks sumber, atau buka **Detail pemrosesan** untuk melihat sumber transkrip, model, dan durasi proses. Untuk video yang membatasi pemutaran sematan, **Buka di YouTube** membuka video pada waktu langkah yang dipilih. Gunakan **Ganti video** untuk memproses sumber lain dalam sesi browser.
+Ringkasan muncul di samping video. Di bawahnya, **Analisis pemrosesan** menampilkan alur, keluaran, dan waktu tiap tahap. Buka **Hasil tiap tahap** untuk melihat transkrip, memutar dari awal segmen, serta memeriksa kalimat yang masuk ke mBART. Isi **Evaluasi dengan teks acuan** jika punya transkrip atau ringkasan referensi untuk menghitung WER, CER, dan ROUGE.
 
 ## Pipeline
 
 1. Untuk MP4, FFprobe memeriksa video dan jalur audio. FFmpeg menyiapkan media untuk pemutar dan dekode audio.
-2. Untuk YouTube, `yt-dlp` mengambil audio ke folder sementara. Whisper `base` multibahasa menghasilkan transkrip dan penanda waktu dari kedua sumber.
-3. Python mengelompokkan potongan yang membahas satu tindakan dan menyimpan rentang waktu serta transkrip sumber.
-4. mBART-50 merangkum tiap kelompok teks. Jika hasil kosong atau pemeriksaan mendeteksi detail penting yang berubah, aplikasi menampilkan **Cuplikan sumber**.
-5. Streamlit menautkan ringkasan ke waktu mulai dari Whisper. Klik penanda menggeser pemutar menggunakan hasil sesi yang sudah tersedia.
+2. Untuk YouTube, aplikasi mencoba mengambil subtitle Indonesia dari video secara otomatis. Jika gagal atau subtitle tidak tersedia, `yt-dlp` mengambil audio agar Whisper membuat transkrip. MP4 memakai Whisper langsung.
+3. Aplikasi menyiapkan kalimat dari berbagai bagian transkrip dan merapikan beberapa frasa teknis umum sebelum memasukkannya ke model.
+4. Aplikasi merangkai pokok bahasan dan hubungan antarkonsep sebagai masukan mBART-50. Pemeriksaan keluaran menjaga topik dan detail teknis serta menyaring gaya instruksi berurutan. Jika pemeriksaan gagal, aplikasi menampilkan ikhtisar yang dirangkai dari pokok bahasan tersebut.
+5. Streamlit menampilkan ringkasan, transkrip bertanda waktu, dan durasi proses. Skor WER, CER, dan ROUGE memakai teks acuan yang diberikan pengguna.
 
 ## Jalankan di Windows PowerShell
 
@@ -28,6 +28,8 @@ $projectPython = '.\.venv\Scripts\python.exe'
 ```
 
 Jika Python 3.11 dipasang melalui `uv`, gunakan `uv venv --python 3.11 --seed .venv` untuk membuat lingkungan. Buka alamat lokal yang ditampilkan Streamlit. Untuk uji awal di CPU, pilih MP4 pendek. Pengunduhan pertama memerlukan koneksi internet dan ruang cache. Bobot PyTorch model dasar berukuran sekitar 2,44 GB. [Berkas checkpoint mBART](https://huggingface.co/facebook/mbart-large-50/tree/main)
+
+Whisper memakai `faster-whisper` pada CPU INT8 secara bawaan. Untuk membandingkan dengan OpenAI Whisper, jalankan aplikasi atau skrip evaluasi setelah mengatur `$env:WHISPER_BACKEND = 'openai'`. Gunakan `Remove-Item Env:WHISPER_BACKEND` untuk kembali ke pengaturan bawaan.
 
 ## Konfigurasi model
 
@@ -50,7 +52,7 @@ Untuk mencoba adapter LoRA lokal, pasang dependensi eksperimen dari `requirement
 & $projectPython -m unittest discover -s tests -v
 ```
 
-Skrip `check_mbart` memakai loader dan konfigurasi generasi dari aplikasi. `Tokenizer OK` dan `Model OK` mengonfirmasi pemuatan dan satu generasi di CPU, termasuk token bahasa Indonesia pada masukan dan keluaran. Untuk uji browser, unggah MP4 pendek, periksa bahwa setiap tombol waktu membawa video ke langkah sumber, lalu coba klik ulang, buka transkrip, dan ganti unggahan.
+Skrip `check_mbart` memakai loader dan konfigurasi generasi dari aplikasi. `Tokenizer OK` dan `Model OK` mengonfirmasi pemuatan dan satu generasi di CPU, termasuk token bahasa Indonesia pada masukan dan keluaran. Untuk uji browser, proses MP4 pendek atau link YouTube, periksa ringkasan dan sumber transkrip, lalu pilih satu segmen dan tekan **Putar segmen**.
 
 Pada uji lokal, checkpoint dasar revisi `4ef55a20b36c6903b832e38f0604ab4bdf22c7d6` berhasil menjalankan generasi di CPU. Klip contoh pandas bernarasi sintetis menghasilkan tiga langkah di Chrome yang dapat diputar dari penanda `00:00`, `00:10`, dan `00:19`. Model dasar mengulang teks masukan pada contoh skrip uji. Perbandingan kualitas masih memerlukan data referensi dan checkpoint hasil fine-tuning.
 

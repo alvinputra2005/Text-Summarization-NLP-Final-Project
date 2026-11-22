@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from threading import Lock
 
@@ -8,7 +9,15 @@ from src.segmentation import Segment
 
 
 WHISPER_MODEL = "base"
+DEFAULT_WHISPER_BACKEND = "faster"
 whisper_lock = Lock()
+
+
+def whisper_backend() -> str:
+    backend = os.environ.get("WHISPER_BACKEND", "").strip().lower() or DEFAULT_WHISPER_BACKEND
+    if backend not in {"faster", "openai"}:
+        raise MediaError("WHISPER_BACKEND harus bernilai faster atau openai.")
+    return backend
 
 
 @st.cache_resource(show_spinner=False)
@@ -18,7 +27,33 @@ def load_whisper():
     return load_model(WHISPER_MODEL, device="cpu")
 
 
+@st.cache_resource(show_spinner=False)
+def load_faster_whisper():
+    from faster_whisper import WhisperModel
+
+    return WhisperModel(
+        WHISPER_MODEL, device="cpu", compute_type="int8", cpu_threads=min(4, os.cpu_count() or 1),
+    )
+
+
 def transcribe(media: Path) -> list[Segment]:
+    if whisper_backend() == "faster":
+        from av.error import FFmpegError
+        from faster_whisper.audio import decode_audio
+
+        try:
+            audio = decode_audio(str(media))
+        except FFmpegError as error:
+            raise MediaError("Audio gagal dibaca. Coba sumber video lain dengan suara yang bisa diputar.") from error
+        if not audio.any():
+            raise MediaError("Audio hening. Pilih video dengan narasi yang terdengar.")
+        with whisper_lock:
+            segments, _ = load_faster_whisper().transcribe(
+                audio, language="id", task="transcribe", beam_size=1, best_of=1,
+                vad_filter=True, word_timestamps=True,
+            )
+            return [Segment(float(item.start), float(item.end), item.text) for item in segments]
+
     from whisper import load_audio
 
     try:
