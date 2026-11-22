@@ -4,10 +4,10 @@ from unittest.mock import Mock, patch
 import torch
 from transformers import BatchEncoding
 
-from src.pipeline import Guide, Step
+from src.pipeline import Guide, Step, finish_guide
 from src.segmentation import Segment, group_segments
 from src.step_sources import prepare_intro, prepare_step_sources
-from src.transcript_quality import is_readable_summary
+from src.transcript_quality import coding_transcript_status, is_readable_summary
 from src.summarization import generate_mbart, model_reference, summarize, summary_preserves_details
 
 
@@ -30,6 +30,21 @@ class SegmentationTests(unittest.TestCase):
 
 
 class GuideTests(unittest.TestCase):
+    def test_non_coding_media_keeps_the_player_and_skips_mbart(self):
+        fixtures = (
+            ([], "no_speech"),
+            ([Segment(0, 10, "Cuci sayuran dengan air bersih. Kemudian rebus kentang sampai empuk sebelum ditiriskan.")], "out_of_scope"),
+            ([Segment(0, 10, "Oke nah ini ya anu dattaaaa gitu")], "unclear"),
+        )
+        for segments, status in fixtures:
+            with self.subTest(status=status), patch("src.pipeline.load_cached_mbart") as load:
+                guide = finish_guide(b"playable", segments, 0, 0, Mock(), overview=False)
+                self.assertEqual(guide.status, status)
+                self.assertEqual(guide.video, b"playable")
+                self.assertEqual(guide.summary_points, ())
+                self.assertEqual(guide.transcript, tuple(segments))
+                load.assert_not_called()
+
     def test_search_matches_summary_and_transcript_and_keeps_original_index(self):
         read = Step(0, 4, "Baca CSV.", "Muat data.", False)
         clean = Step(4, 8, "Gunakan dropna.", "Hapus harga kosong.", False)
@@ -41,6 +56,37 @@ class GuideTests(unittest.TestCase):
 
 
 class StepSourceTests(unittest.TestCase):
+    def test_branch_demonstrations_exclude_unpunctuated_banter(self):
+        sources = prepare_step_sources([
+            Segment(0, 6, "Lalu dari sini maksudnya elif itu apa ini buat nama anak bagus"),
+            Segment(50, 60, "If kondisi aksi lalu kita pakai elif dan masukkan lagi kondisi."),
+            Segment(61, 70, "Pakai elif lagi kondisi lagi lalu else dan pakai elif sebanyak apapun."),
+        ])
+        self.assertEqual([source.segment.start for source in sources], [50, 61])
+        self.assertTrue(all(source.required_clause for source in sources))
+        [banter] = prepare_step_sources([Segment(0, 6, "Ini buat nama anak bagus")])
+        self.assertEqual(banter.text, "")
+
+    def test_javascript_tutorial_is_recognized_without_python_rewrites(self):
+        segments = [
+            Segment(0, 4, "JavaScript memakai variabel untuk menyimpan nilai."),
+            Segment(4, 8, "Pakai range 5 untuk menghasilkan 0 sampai 4."),
+            Segment(8, 12, "Pakai range 1,6 untuk menghasilkan 1 sampai 5."),
+        ]
+        self.assertEqual(coding_transcript_status(segments), "ready")
+        self.assertFalse(any("perulangan for menghasilkan" in source.text for source in prepare_step_sources(segments)))
+
+    def test_range_keeps_verified_outputs_when_examples_are_close_together(self):
+        sources = prepare_step_sources([
+            Segment(1, 3, "Pakai range 5. Range 5 itu"),
+            Segment(3, 7, "berjalan dari angka 0 sampai 4."),
+            Segment(8, 11, "Bisa pakai range 10. Atau tulis range 1,6"),
+            Segment(11, 15, "yang mulai dari 1 sampai 5."),
+        ])
+        self.assertEqual(len(sources), 2)
+        self.assertIn("range(5)", sources[0].text)
+        self.assertIn("range(1, 6)", sources[1].text)
+
     def test_boolean_demonstrations_are_separated_and_seek_to_their_introductions(self):
         steps = prepare_step_sources([
             Segment(1, 4, "Ini tentang operasi logika Boolean."),
@@ -109,6 +155,10 @@ class StepSourceTests(unittest.TestCase):
 
 
 class SummaryTests(unittest.TestCase):
+    def test_rejects_changes_to_comparisons_with_the_same_numbers(self):
+        source = "Periksa umur >= 17 sebelum menjalankan cabang if."
+        self.assertFalse(summary_preserves_details(source, "Periksa umur > 17 sebelum menjalankan cabang if."))
+
     def test_model_reference_uses_default_and_accepts_checkpoint_override(self):
         for value, expected in [
             (" ", "facebook/mbart-large-50"),

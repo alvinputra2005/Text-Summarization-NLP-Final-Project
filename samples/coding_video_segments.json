@@ -1,0 +1,65 @@
+{
+  "train": [
+    {"video_id": "Ar1xxIsyuvI", "topic": "input", "clips": [
+      [51, 70, "Gunakan input() dengan teks pertanyaan dan simpan jawaban di variabel data.", ["input", "pertanyaan", "data"]],
+      [135, 145, "Angka 10 yang dimasukkan lewat input() tetap dibaca sebagai string.", ["10", "string"]],
+      [222, 237, "Setelah konversi tipe, masukan 10 dibaca sebagai integer.", ["10", "integer"]],
+      [327, 340, "Konversi langsung dari teks False ke boolean menghasilkan True.", ["False", "boolean", "True"]],
+      [341, 366, "Konversikan masukan ke integer sebelum ke boolean. Nilai 1 menghasilkan True dan 0 menghasilkan False.", ["integer", "boolean", "1", "True", "0", "False"]]
+    ]},
+    {"video_id": "JUE9vPXefGI", "topic": "range", "clips": [
+      [65, 90, "Gunakan range(5) untuk mengulang lima kali, dari 0 sampai 4.", ["range(5)", "0", "4"]],
+      [105, 119, "Gunakan range(1, 6) untuk memulai dari 1 dan berakhir pada 5.", ["range(1, 6)", "1", "5"]]
+    ]},
+    {"video_id": "A5y8pokbg6A", "topic": "pandas", "clips": [
+      [74, 116, "Seragamkan kolom tanggal ke tipe datetime agar nilainya bisa diproses lebih lanjut.", ["tanggal", "datetime"]],
+      [488, 509, "Periksa tipe data kolom dengan df.info() sesudah mengubah tipe tanggal.", ["df.info", "tipe"]],
+      [515, 537, "Hitung nilai kosong per kolom dengan df.isnull().sum(). Hasilnya nol untuk semua kolom.", ["isnull", "sum", "nol"]],
+      [538, 561, "Periksa jumlah baris duplikat. Hasil pemeriksaannya nol.", ["duplikat", "nol"]],
+      [590, 619, "Simpan dataset yang sudah dibersihkan ke berkas CSV dengan df.to_csv().", ["to_csv", "CSV"]]
+    ]},
+    {"video_id": "23dDEp6WPH4", "topic": "return", "clips": [
+      [156, 205, "Kembalikan nilai dari fungsi kuadrat dengan return, lalu simpan hasilnya. Kuadrat 3 menghasilkan 9.", ["return", "3", "9"]],
+      [291, 339, "Fungsi penjumlahan menerima dua argumen dan mengembalikan total. Untuk 3 dan 4, hasilnya 7.", ["3", "4", "7"]]
+    ]},
+    {"video_id": "mJQSkaXio8I", "topic": "branch", "clips": [
+      [85, 104, "Jika syarat umur minimal 17 tidak terpenuhi, program menjalankan else. Contoh umur 15 mengambil cabang itu.", ["17", "15", "else"]],
+      [105, 124, "Periksa kondisi berikutnya dengan elif jika kondisi sebelumnya gagal. Jalankan else jika tidak ada kondisi yang terpenuhi.", ["elif", "else"]]
+    ]},
+    {"video_id": "S1_DkpdZpb0", "topic": "csv", "clips": [
+      [149, 189, "Simpan DataFrame sebagai CSV dengan to_csv() dan berikan nama berkas tujuan.", ["to_csv", "CSV"]],
+      [393, 421, "Gunakan index=False pada to_csv() agar indeks tidak ikut disimpan.", ["to_csv", "index=False"]]
+    ]}
+  ],
+  "validation": [
+    {"video_id": "ywE2eqG3-kc", "topic": "function", "clips": [
+      [411, 443, "Panggil fungsi yang sama beberapa kali untuk menjalankan ulang perintah di dalamnya.", ["fungsi", "panggil"]],
+      [564, 607, "Definisikan fungsi sebelum memanggilnya. Pemanggilan sebelum definisi menyebabkan galat.", ["fungsi", "definisi"]]
+    ]},
+    {"video_id": "vKnx8sr9xHo", "topic": "dataframe", "clips": [
+      [499, 537, "Gunakan DataFrame untuk menyusun data. Label baris dan kolom dapat diberikan melalui parameter terpisah.", ["DataFrame", "kolom"]],
+      [659, 686, "Periksa label kolom dengan atribut columns pada DataFrame.", ["columns", "DataFrame"]]
+    ]},
+    {"video_id": "Z4qfMhx4XzQ", "topic": "iteration", "clips": [
+      [547, 584, "Gunakan for untuk menelusuri isi sebuah list dan mencetak elemen yang sedang dibaca.", ["for", "list"]],
+      [797, 820, "Pada range(5), perulangan mencetak 0 sampai 4. Angka 5 merupakan batas yang tidak ikut diambil.", ["range(5)", "0", "4"]]
+    ]}
+  ],
+  "test": [
+    {"video_id": "DQfvftz-fEI", "topic": "lists-and-functions", "clips": [
+      [2614, 2644, "Gunakan append untuk menambahkan nama murid ke akhir list.", ["append", "akhir", "list"]],
+      [3504, 3537, "Gunakan return untuk mengembalikan hasil penjumlahan dua argumen dalam fungsi.", ["return", "fungsi"]],
+      [3628, 3668, "Fungsi dapat menghitung selisih B dan A, lalu mengembalikan hasilnya lewat return untuk dipakai pemanggil.", ["return", "B", "A"]]
+    ]},
+    {"video_id": "I8mpr4AvZiQ", "topic": "conditionals", "clips": [
+      [374, 410, "Python memeriksa kondisi if lebih dulu, lalu memeriksa elif jika kondisi awal salah.", ["if", "elif"]],
+      [494, 515, "Jika dua kondisi sebelumnya tidak terpenuhi, cabang else menampilkan huruf C.", ["else", "C"]]
+    ]},
+    {"video_id": "2-vhckYIOOU", "topic": "sets", "clips": [
+      [3210, 3236, "Ubah list ke set untuk mendapatkan nilai unik dan menghilangkan duplikat.", ["list", "set", "unik"]],
+      [3240, 3271, "Union menggabungkan anggota dua set, sedangkan intersection mengambil anggota yang ada di keduanya.", ["union", "intersection"]],
+      [3319, 3338, "Gunakan intersection untuk menemukan bacaan yang sama antara Andrew dan Mary.", ["intersection", "Andrew", "Mary"]],
+      [3330, 3352, "Gunakan difference untuk mencari bacaan yang dibaca Mary tetapi tidak dibaca Andrew.", ["difference", "Mary", "Andrew"]]
+    ]}
+  ]
+}

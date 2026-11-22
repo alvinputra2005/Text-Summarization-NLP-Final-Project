@@ -5,12 +5,28 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src.media import MediaError
-from src.pipeline import Step, build_youtube_guide
+from src.pipeline import Step, YouTubeInspection, build_youtube_guide, inspect_youtube
 from src.segmentation import Segment
 from src.youtube import download_youtube_audio, parse_youtube_captions, youtube_watch_url
 
 
 class YouTubeTests(unittest.TestCase):
+    def test_preflight_stops_after_subtitle_lookup(self):
+        with patch("src.pipeline.fetch_youtube_captions", return_value=None), patch("src.pipeline.download_youtube_audio") as download:
+            inspected = inspect_youtube("https://youtu.be/M7lc1UVf-VE")
+        self.assertIsNone(inspected.captions)
+        self.assertEqual(inspected.video, "https://www.youtube.com/watch?v=M7lc1UVf-VE")
+        download.assert_not_called()
+
+    def test_a_checked_link_does_not_repeat_subtitle_lookup_when_approved(self):
+        checked = YouTubeInspection("https://www.youtube.com/watch?v=M7lc1UVf-VE", None, 1)
+        with patch("src.pipeline.fetch_youtube_captions") as fetch, patch("src.pipeline.download_youtube_audio") as download, patch(
+            "src.pipeline.transcribe", return_value=[],
+        ) as transcribe, patch("src.pipeline.finish_guide"):
+            build_youtube_guide(checked, Mock(), prefer_captions=True)
+        fetch.assert_not_called()
+        transcribe.assert_called_once_with(download.return_value)
+
     def test_normalizes_supported_video_links_and_ignores_input_timestamp(self):
         video_id = "M7lc1UVf-VE"
         links = (
@@ -62,7 +78,7 @@ class YouTubeTests(unittest.TestCase):
         progress = Mock()
         with patch("src.pipeline.download_youtube_audio") as download, patch(
             "src.pipeline.transcribe", return_value=[segment],
-        ) as transcribe, patch(
+        ) as transcribe, patch("src.pipeline.gemini_config", return_value=None), patch(
             "src.pipeline.summarize_segments", return_value=(steps, "example-mbart", None),
         ) as summarize:
             guide = build_youtube_guide("https://youtu.be/M7lc1UVf-VE?t=20", progress)

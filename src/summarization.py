@@ -26,6 +26,8 @@ NUMBER = re.compile(
     re.IGNORECASE,
 )
 NEGATION = re.compile(r"\b(?:tidak|tak|jangan|bukan|belum|tanpa|nggak|enggak|gak)\b", re.IGNORECASE)
+COMPARISON = re.compile(r"(?<!\w)(-?\d+(?:\.\d+)?|[A-Za-z_]\w*)\s*(==|!=|<=|>=|[<>])\s*(-?\d+(?:\.\d+)?|[A-Za-z_]\w*)(?!\w)")
+BOOLEAN_EXPRESSION = re.compile(r"\b(True|False)\s+(and|or|xor|\^|&&|\|\|)\s+(True|False)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -61,8 +63,8 @@ def load_mbart(reference: str):
     return tokenizer, model.to("cpu").eval()
 
 
-def generate_mbart(inputs, tokenizer, model, *, max_new_tokens: int = 56):
-    language_id = tokenizer.lang_code_to_id[INDONESIAN]
+def generate_mbart(inputs, tokenizer, model, *, max_new_tokens: int = 56, target_language: str = INDONESIAN):
+    language_id = tokenizer.lang_code_to_id[target_language]
     with torch.inference_mode():
         return model.generate(
             **inputs.to(model.device),
@@ -107,6 +109,8 @@ def summary_preserves_details(source: str, summary: str) -> bool:
     if summary[-1] not in ".!?" or re.search(r"\b(\w+)(?:[ ,]+\1){2,}\b", summary, re.IGNORECASE):
         return False
     if details(source) != details(summary):
+        return False
+    if any(pattern.findall(source) != pattern.findall(summary) for pattern in (COMPARISON, BOOLEAN_EXPRESSION)):
         return False
     source_actions = {match.lastgroup for match in ACTION.finditer(source)}
     summary_actions = {match.lastgroup for match in ACTION.finditer(summary)}

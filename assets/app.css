@@ -120,33 +120,15 @@
   padding-left: 1.25rem;
 }
 
-.st-key-timeline {
-  gap: 0;
-  max-height: 42rem;
-  overflow-y: auto;
+.st-key-summary-pane .summary-points {
+  margin: 0;
+  padding-inline-start: 1.25rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
-.st-key-timeline [data-testid="stHorizontalBlock"] {
-  flex-wrap: nowrap;
-  align-items: baseline;
-  padding: 0.625rem 0;
-  border-top: 1px solid var(--line);
-}
-
-.st-key-timeline [data-testid="stColumn"]:first-child {
-  flex: 0 0 3.75rem;
-  min-width: 3.75rem;
-}
-
-.st-key-timeline [data-testid="stColumn"]:last-child {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
-.st-key-timeline button {
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
+.summary-points li + li {
+  margin-top: 0.65rem;
 }
 
 .step-copy,
@@ -163,7 +145,8 @@
 }
 
 .step-copy code,
-.video-intro code {
+.video-intro code,
+.summary-points code {
   padding: 0.05em 0.26em;
   border-radius: 0.2rem;
   color: #244a90;
@@ -280,10 +263,6 @@
   .st-key-summary-pane {
     border-left: 0;
     padding-left: 0;
-  }
-
-  .st-key-timeline {
-    max-height: none;
   }
 
   .st-key-analysis-panel .pipeline-flow {

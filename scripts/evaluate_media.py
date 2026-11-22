@@ -11,7 +11,7 @@ from statistics import mean
 from time import perf_counter
 
 from src.evaluation import normalize, speech_metrics
-from src.transcription import WHISPER_MODEL, transcribe, whisper_backend
+from src.transcription import transcribe, whisper_backend, whisper_beam_size, whisper_model
 
 
 def evaluate_whisper(manifest, limit):
@@ -32,8 +32,9 @@ def evaluate_whisper(manifest, limit):
         print(f"Whisper {len(results)}/{limit}", flush=True)
     return {
         "manifest": str(manifest),
-        "whisper": WHISPER_MODEL,
+        "whisper": whisper_model(),
         "whisper_backend": whisper_backend(),
+        "beam_size": whisper_beam_size(),
         "language": "id",
         "seed": 42,
         "samples": limit,

@@ -1,4 +1,4 @@
-# Setup lokal Panduan Praktik Python
+# Setup lokal Panduan Pemrograman
 
 [README.md](README.md) memuat pipeline, instalasi dependensi, konfigurasi `MBART_MODEL_ID`, dan cara menjalankan Streamlit. Ikuti panduan ini untuk memeriksa setiap bagian di Windows PowerShell.
 
@@ -47,14 +47,18 @@ $transcript.segments | Select-Object -First 3 start, end, text | Format-Table -W
 
 ## 4. Uji aplikasi
 
+Jika ingin mengaktifkan Gemini, isi `GEMINI_API_KEY` di `.env` sesuai [panduan Gemini](README.md#aktifkan-preprocessing-gemini), lalu jalankan `& $projectPython -m scripts.check_gemini` untuk menguji koneksi dengan transkrip sintetis.
+
 ```powershell
 & $projectPython -m streamlit run app.py --server.address 127.0.0.1
 ```
 
 - Unggah MP4 dan tekan **Buat Panduan**. Periksa bahwa model yang ditampilkan sesuai konfigurasi.
 - Buka tab **Link YouTube**, tempel link video publik bernarasi, lalu tekan **Buat Panduan**. Di **Hasil tiap tahap**, periksa apakah sumber transkripnya subtitle YouTube atau Whisper.
-- Pilih segmen dan tekan **Putar segmen**. Pastikan pemutar berpindah ke waktu sumber dengan memakai hasil yang sudah tersedia.
-- Coba **Evaluasi dengan teks acuan** dengan transkrip atau ringkasan referensi yang sesuai.
-- Pilih **Ganti video** dan pastikan hasil sebelumnya hilang. Uji pesan untuk MP4 rusak atau tanpa audio.
+- Di **Analisis pemrosesan**, periksa apakah preprocessing memakai Gemini atau alur lokal.
+- Jika subtitle Indonesia belum ditemukan, **Lanjut dengan Whisper** memulai transkripsi audio. **Batal** kembali ke pilihan sumber.
+- Periksa **Poin utama** di samping video. Untuk memeriksa sumber, pilih segmen dari **Audit langkah** dan tekan **Putar langkah ini**.
+- Buka **Skor acuan** dan masukkan transkrip atau ringkasan referensi yang sesuai.
+- Pilih **Ganti video** dan pastikan hasil sebelumnya hilang. Uji pesan untuk MP4 rusak atau tanpa audio, lalu periksa status di panel ringkasan untuk video hening atau di luar cakupan.
 
 `.gitignore` mencakup lingkungan Python, unggahan, checkpoint, keluaran, video contoh lokal, dan rahasia konfigurasi. Jika model gagal dimuat, periksa akses ke Hugging Face, ruang cache, serta kelengkapan tokenizer dan bobot pada checkpoint yang dipilih.

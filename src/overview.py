@@ -7,7 +7,7 @@ from src.segmentation import ACTION, Segment
 TOPICS = re.compile(
     r"\b(?P<input>input)\b|\b(?P<string>str|string)\b|\b(?P<integer>int|integer|bilangan bulat)\b|"
     r"\b(?P<float>float|desimal)\b|\b(?P<boolean>bool|boolean|true|false)\b|\b(?P<file>csv|excel|json)\b|"
-    r"\b(?P<pandas>pandas|dataframe)\b|\b(?P<branch>if|percabangan)\b|\b(?P<loop>perulangan|while|for loop)\b",
+    r"\b(?P<pandas>pandas|dataframe)\b|\b(?P<branch>if|elif|else|percabangan)\b|\b(?P<loop>perulangan|while|for loop|range)\b",
     re.IGNORECASE,
 )
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
@@ -19,7 +19,7 @@ EXPLANATION = re.compile(
     re.IGNORECASE,
 )
 CHATTY = re.compile(
-    r"\b(?:assalamualaikum|episode|selamat datang|subscribe|komentar|bye|selanjutnya|gimana|misalkan)\b",
+    r"\b(?:assalamualaikum|halo semuanya|sampai jumpa|video berikutnya|episode|selamat datang|subscribe|komentar|bye|selanjutnya|gimana|misalkan)\b",
     re.IGNORECASE,
 )
 DEFINITION = re.compile(r"\b(?:tipe data|bertipe|pasti|selalu|secara bawaan|kalau.*(?:true|false))\b", re.IGNORECASE)

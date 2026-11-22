@@ -1,3 +1,4 @@
+import json
 import re
 
 
@@ -6,6 +7,21 @@ ROUGE_TYPES = ("rouge1", "rouge2", "rouge3", "rougeL")
 
 def normalize(text: str) -> str:
     return " ".join(re.findall(r"[^\W_]+", text.casefold()))
+
+
+def annotated_detail_recall(rows, predictions):
+    totals = 0
+    matched = 0
+    for row, item in zip(rows, predictions, strict=True):
+        if not row.get("required_details"):
+            continue
+        prediction = normalize(item["prediction"])
+        for detail in json.loads(row["required_details"]):
+            normalized = normalize(detail)
+            if normalized:
+                totals += 1
+                matched += bool(re.search(rf"(?<!\w){re.escape(normalized)}(?!\w)", prediction))
+    return {"matched": matched, "total": totals, "recall": matched / totals} if totals else None
 
 
 def speech_metrics(references: list[str], predictions: list[str]) -> dict[str, float]:

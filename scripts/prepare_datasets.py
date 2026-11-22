@@ -7,9 +7,6 @@ import json
 from pathlib import Path
 import subprocess
 import tarfile
-from zipfile import ZipFile
-
-import ijson
 from openpyxl import load_workbook
 import pyarrow.parquet as pq
 
@@ -80,17 +77,6 @@ def prepare_indosum():
         )
 
 
-def prepare_liputan6():
-    with ZipFile(RAW / "liputan6/indonlg-downstream.zip") as archive:
-        prepare_summary(
-            "liputan6",
-            lambda split: archive.open(f"IndoNLG_downstream_tasks/liputan6/canonical_{split}.json"),
-            lambda stream: ijson.items(stream, "item"),
-            "text",
-            "label",
-        )
-
-
 def prepare_fleurs():
     source = pq.ParquetFile(RAW / "fleurs/test.parquet")
     output = PREPARED / "fleurs"
@@ -150,7 +136,7 @@ def prepare_lumina():
 
 
 def main():
-    tasks = {"indosum": prepare_indosum, "liputan6": prepare_liputan6, "fleurs": prepare_fleurs, "lumina": prepare_lumina}
+    tasks = {"indosum": prepare_indosum, "fleurs": prepare_fleurs, "lumina": prepare_lumina}
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dataset", choices=["all", *tasks], default="all", nargs="?")
     selected = parser.parse_args().dataset

@@ -17,6 +17,17 @@ PYTHON_PROMPT = (
 whisper_lock = Lock()
 
 
+def whisper_model() -> str:
+    return os.environ.get("WHISPER_MODEL_ID", "").strip() or WHISPER_MODEL
+
+
+def whisper_beam_size() -> int:
+    value = os.environ.get("WHISPER_BEAM_SIZE", "").strip() or "1"
+    if value not in {"1", "2", "3", "4", "5"}:
+        raise MediaError("WHISPER_BEAM_SIZE harus berupa angka 1 sampai 5.")
+    return int(value)
+
+
 def whisper_backend() -> str:
     backend = os.environ.get("WHISPER_BACKEND", "").strip().lower() or DEFAULT_WHISPER_BACKEND
     if backend not in {"faster", "openai"}:
@@ -25,23 +36,25 @@ def whisper_backend() -> str:
 
 
 @st.cache_resource(show_spinner=False)
-def load_whisper():
+def load_whisper(reference: str = WHISPER_MODEL):
     from whisper import load_model
 
-    return load_model(WHISPER_MODEL, device="cpu")
+    return load_model(reference, device="cpu")
 
 
 @st.cache_resource(show_spinner=False)
-def load_faster_whisper():
+def load_faster_whisper(reference: str = WHISPER_MODEL):
     from faster_whisper import WhisperModel
 
     return WhisperModel(
-        WHISPER_MODEL, device="cpu", compute_type="int8", cpu_threads=min(4, os.cpu_count() or 1),
+        reference, device="cpu", compute_type="int8", cpu_threads=min(4, os.cpu_count() or 1),
     )
 
 
 def transcribe(media: Path, *, retry_noisy: bool = False) -> list[Segment]:
-    decoding = {"beam_size": 3, "initial_prompt": PYTHON_PROMPT} if retry_noisy else {}
+    beam_size = whisper_beam_size()
+    decoding = {"beam_size": max(3, beam_size), "initial_prompt": PYTHON_PROMPT} if retry_noisy else {"beam_size": beam_size}
+    reference = whisper_model()
     if whisper_backend() == "faster":
         from av.error import FFmpegError
         from faster_whisper.audio import decode_audio
@@ -51,11 +64,11 @@ def transcribe(media: Path, *, retry_noisy: bool = False) -> list[Segment]:
         except FFmpegError as error:
             raise MediaError("Audio gagal dibaca. Coba sumber video lain dengan suara yang bisa diputar.") from error
         if not audio.any():
-            raise MediaError("Audio hening. Pilih video dengan narasi yang terdengar.")
+            return []
         with whisper_lock:
-            segments, _ = load_faster_whisper().transcribe(
+            segments, _ = load_faster_whisper(reference).transcribe(
                 audio, language="id", task="transcribe", best_of=1,
-                vad_filter=True, word_timestamps=True, **(decoding or {"beam_size": 1}),
+                vad_filter=True, word_timestamps=True, **decoding,
             )
             return [Segment(float(item.start), float(item.end), item.text) for item in segments]
 
@@ -66,7 +79,7 @@ def transcribe(media: Path, *, retry_noisy: bool = False) -> list[Segment]:
     except RuntimeError as error:
         raise MediaError("Audio gagal dibaca. Coba sumber video lain dengan suara yang bisa diputar.") from error
     if not audio.any():
-        raise MediaError("Audio hening. Pilih video dengan narasi yang terdengar.")
+        return []
     with whisper_lock:
-        result = load_whisper().transcribe(audio, language="id", task="transcribe", fp16=False, **decoding)
+        result = load_whisper(reference).transcribe(audio, language="id", task="transcribe", fp16=False, **decoding)
     return [Segment(item["start"], item["end"], item["text"]) for item in result["segments"]]

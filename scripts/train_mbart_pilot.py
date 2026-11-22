@@ -1,6 +1,7 @@
-"""Run an mBART LoRA experiment on the prepared IndoSum splits."""
+"""Run an mBART LoRA experiment on prepared text and summary pairs."""
 
 import argparse
+from collections import Counter
 import csv
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ from rouge_score import rouge_scorer
 from transformers import AutoConfig, AutoModelForSeq2SeqLM, MBart50TokenizerFast
 
 from src.summarization import INDONESIAN, PUBLIC_MODEL, generate_mbart
+from src.evaluation import annotated_detail_recall
 
 
 DEVICE = torch.device("cuda:0")
@@ -60,6 +62,8 @@ def sample_split(path, limit):
 
 
 def encode(tokenizer, row, source_tokens, target_tokens):
+    tokenizer.src_lang = row.get("source_lang") or INDONESIAN
+    tokenizer.tgt_lang = row.get("target_lang") or INDONESIAN
     inputs = tokenizer(
         row["text"], max_length=source_tokens, truncation=True, return_tensors="pt",
     ).to(DEVICE)
@@ -99,7 +103,7 @@ def evaluate(model, tokenizer, rows, source_tokens=SOURCE_TOKENS, target_tokens=
         inputs, labels = encode(tokenizer, row, source_tokens, target_tokens)
         with torch.autocast("cuda", dtype=DTYPE):
             loss = model(**inputs, labels=labels, use_cache=False).loss
-            generated = generate_mbart(inputs, tokenizer, model, max_new_tokens=target_tokens)
+            generated = generate_mbart(inputs, tokenizer, model, max_new_tokens=target_tokens, target_language=tokenizer.tgt_lang)
         if not torch.isfinite(loss).item():
             raise RuntimeError(f"Loss validasi tidak finite untuk contoh {row['id']}.")
         losses.append(loss.item())
@@ -134,12 +138,17 @@ def main():
     parser.add_argument("--source-tokens", type=int, default=SOURCE_TOKENS)
     parser.add_argument("--target-tokens", type=int, default=TARGET_TOKENS)
     parser.add_argument("--decoder-layers", type=int, default=1, help="Jumlah layer terakhir decoder yang diberi LoRA.")
+    parser.add_argument("--learning-rate", type=float, default=LEARNING_RATE)
     parser.add_argument("--epochs", type=int, default=1)
-    parser.add_argument("--patience", type=int, default=2, help="Jumlah epoch tanpa kenaikan ROUGE-L sebelum berhenti.")
+    parser.add_argument("--patience", type=int, default=2, help="Jumlah epoch tanpa perbaikan validasi sebelum berhenti.")
+    parser.add_argument("--select-by", choices=("rougeL", "details"), default="rougeL",
+                        help="Pilih epoch berdasarkan ROUGE-L atau recall detail acuan dengan ROUGE-L sebagai pembanding seri.")
     parser.add_argument("--compare-base", action="store_true", help="Evaluasi model dasar pada contoh validasi yang sama.")
     args = parser.parse_args()
     if min(args.train_samples, args.validation_samples) < 1:
         parser.error("Jumlah contoh train dan validation minimal 1.")
+    if not 0 < args.learning_rate < 1:
+        parser.error("Learning rate harus lebih dari 0 dan kurang dari 1.")
     if not 1 <= args.epochs <= 5 or args.patience < 1:
         parser.error("Gunakan 1 sampai 5 epoch dan patience minimal 1.")
     if args.output_dir.exists():
@@ -149,6 +158,9 @@ def main():
 
     train_rows = sample_split(args.data_dir / "train.csv", args.train_samples)
     validation_rows = sample_split(args.data_dir / "validation.csv", args.validation_samples)
+    empty_predictions = [{"prediction": ""}] * len(validation_rows)
+    if args.select_by == "details" and annotated_detail_recall(validation_rows, empty_predictions) is None:
+        parser.error("Validasi harus memuat required_details untuk memilih epoch berdasarkan detail acuan.")
     torch.manual_seed(SEED)
     revision = Path(hf_hub_download(PUBLIC_MODEL, "config.json", local_files_only=True)).parent.name
     config = AutoConfig.from_pretrained(PUBLIC_MODEL, revision=revision, local_files_only=True)
@@ -180,12 +192,13 @@ def main():
     )
     model.print_trainable_parameters()
     parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
-    optimizer = torch.optim.AdamW(parameters, lr=LEARNING_RATE, weight_decay=0.01, foreach=False)
+    optimizer = torch.optim.AdamW(parameters, lr=args.learning_rate, weight_decay=0.01, foreach=False)
     args.output_dir.mkdir(parents=True)
     adapter_path = args.output_dir / "adapter"
     lengths = (args.source_tokens, args.target_tokens)
     history = []
     best_epoch = None
+    best_score = None
     best_predictions = None
     for epoch in range(1, args.epochs + 1):
         print(f"Epoch {epoch}/{args.epochs}", flush=True)
@@ -193,10 +206,15 @@ def main():
             random.Random(SEED + epoch - 1).shuffle(train_rows)
         train_loss = train_epoch(model, tokenizer, train_rows, *lengths, optimizer, parameters)
         metrics, predictions = evaluate(model, tokenizer, validation_rows, *lengths)
+        detail = annotated_detail_recall(validation_rows, predictions)
+        if detail is not None:
+            metrics["annotated_detail_recall"] = detail["recall"]
         result = {"epoch": epoch, "train_loss": train_loss, **metrics}
         history.append(result)
-        if best_epoch is None or result["rougeL"] > best_epoch["rougeL"]:
+        score = (detail["recall"], metrics["rougeL"]) if args.select_by == "details" else (metrics["rougeL"],)
+        if best_score is None or score > best_score:
             best_epoch = result
+            best_score = score
             best_predictions = predictions
             model.save_pretrained(adapter_path, save_embedding_layers=False)
             tokenizer.save_pretrained(adapter_path)
@@ -204,7 +222,7 @@ def main():
         save_json(args.output_dir / "epoch_history.json", history)
         print(json.dumps(result), flush=True)
         if epoch - best_epoch["epoch"] >= args.patience:
-            print("Early stopping: ROUGE-L validasi tidak meningkat.", flush=True)
+            print(f"Early stopping: kriteria {args.select_by} pada validasi tidak meningkat.", flush=True)
             break
 
     model.load_adapter(adapter_path, adapter_name="best")
@@ -213,6 +231,9 @@ def main():
     print(f"Adapter epoch {best_epoch['epoch']} berhasil dimuat ulang.", flush=True)
     report = {
         "checkpoint": f"{PUBLIC_MODEL}@{revision}",
+        "data_dir": str(args.data_dir),
+        "training_sources": dict(sorted(Counter(row.get("source") or "unknown" for row in train_rows).items())),
+        "training_languages": dict(sorted(Counter(row.get("target_lang") or INDONESIAN for row in train_rows).items())),
         "train_samples": len(train_rows),
         "validation_samples": len(validation_rows),
         "seed": SEED,
@@ -220,8 +241,9 @@ def main():
         "max_epochs": args.epochs,
         "patience": args.patience,
         "best_epoch": best_epoch["epoch"],
+        "selection": args.select_by,
         "batch_size": 1,
-        "learning_rate": LEARNING_RATE,
+        "learning_rate": args.learning_rate,
         "decoder_layers": args.decoder_layers,
         "lora_rank": 8,
         "lora_alpha": 16,

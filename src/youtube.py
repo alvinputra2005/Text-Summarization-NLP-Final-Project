@@ -100,13 +100,14 @@ def parse_youtube_captions(document: dict) -> list[Segment]:
     return sorted(segments, key=lambda item: item.start)
 
 
-def fetch_youtube_captions(video: str, directory: Path) -> tuple[list[Segment], str] | None:
+def fetch_youtube_captions(video: str, directory: Path, *, language: str = "id") -> tuple[list[Segment], str] | None:
+    language_name = {"id": "Indonesia", "en": "Inggris"}[language]
     command = [
         sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-playlist", "--js-runtimes", "node",
         "--no-progress", "--encoding", "utf-8", "--socket-timeout", "8", "--retries", "1",
         "--match-filter", "!is_live", "--skip-download", "--write-subs", "--write-auto-subs",
-        "--sub-langs", "id,id-orig", "--sub-format", "json3",
-        "--output", "captions.%(ext)s", "--print", "%(language)s|%(subtitles.id.0.ext)s",
+        "--sub-langs", f"{language},{language}-orig", "--sub-format", "json3",
+        "--output", "captions.%(ext)s", "--print", f"%(language)s|%(subtitles.{language}.0.ext)s",
         "--no-simulate", "--", video,
     ]
     try:
@@ -117,14 +118,14 @@ def fetch_youtube_captions(video: str, directory: Path) -> tuple[list[Segment], 
     except subprocess.TimeoutExpired:
         return None
 
-    # An Indonesian display track can be an automatic translation. Prefer the original track.
+    # The display track can be an automatic translation. Prefer the original track.
     metadata = result.stdout.strip().splitlines()
-    language, _, authored = metadata[0].partition("|") if metadata else ("", "", "")
-    tracks = [("id-orig", "Subtitle otomatis YouTube")]
+    origin, _, authored = metadata[0].partition("|") if metadata else ("", "", "")
+    tracks = [(f"{language}-orig", "Subtitle otomatis YouTube")]
     if authored and authored != "NA":
-        tracks.insert(0, ("id", "Subtitle Indonesia YouTube"))
-    elif language == "id":
-        tracks.append(("id", "Subtitle otomatis YouTube"))
+        tracks.insert(0, (language, f"Subtitle {language_name} YouTube"))
+    elif origin.partition("-")[0] == language:
+        tracks.append((language, "Subtitle otomatis YouTube"))
     for locale, source in tracks:
         try:
             document = json.loads((directory / f"captions.{locale}.json3").read_text(encoding="utf-8-sig"))

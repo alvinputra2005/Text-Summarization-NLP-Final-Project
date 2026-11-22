@@ -4,7 +4,7 @@ import re
 
 from src.overview import CHATTY, SENTENCE_END, clean_sentence, join_topics, overview_context, topic_tags
 from src.segmentation import ACTION, Segment, group_segments, join_segments
-from src.transcript_quality import MAX_STEP_WORDS, is_readable_statement
+from src.transcript_quality import MAX_STEP_WORDS, OTHER_PROGRAMMING_LANGUAGE, PYTHON, is_readable_statement
 
 
 @dataclass(frozen=True)
@@ -70,13 +70,33 @@ PANDAS_ACTIONS = (
         "pada kolom harga",
     ),
     (
-        r"\btanpa meny[ae][rt]t?akan (?:index|indeks)\b.{0,10}?\bberkas baru berisi data\w?\b",
+        r"\bhapus baris\b.{0,20}?\bharga (?:yang )?kosong\b.{0,28}?\bdrop[ _-]?na\b",
+        "Gunakan dropna() untuk menghapus baris dengan harga kosong.",
+        "menghapus baris dengan harga kosong",
+    ),
+    (
+        r"\btanpa meny(?:[ae][rt]t?akan|atakan) (?:index|indeks)\b.{0,10}?\bberkas baru berisi data\w?\b",
         "Simpan hasil ke berkas baru tanpa menyertakan indeks.",
         "tanpa menyertakan indeks",
     ),
 )
 CAUTION = re.compile(r"\b(?:jangan|tidak|bukan|belum|nggak|enggak|gak|tak)\b", re.IGNORECASE)
 BOOLEAN_CONTEXT = re.compile(r"\b(?:boolean|operasi logika|tabel kebenaran)\b", re.IGNORECASE)
+BRANCH_DEMONSTRATIONS = (
+    (r"\bif\s+kondisi\s+aksi.{0,180}?\bpakai elif\b.{0,130}?\b(?:lagi kondisi|kondisi lagi)\b",
+     "Gunakan if untuk kondisi pertama, lalu elif untuk memeriksa kondisi berikutnya jika kondisi sebelumnya salah."),
+    (r"\bpakai elif lagi kondisi lagi\b.{0,150}?\belse\b.{0,140}?\bsebanyak apapun\b",
+     "Tambahkan beberapa elif untuk kondisi tambahan. Letakkan else di akhir untuk menangani masukan yang tidak memenuhi kondisi mana pun."),
+    (r"\bkhusus untuk si (?P<name>\w+)\b.{0,100}?\bbikin elif\b",
+     "Tambahkan elif khusus untuk mengenali nama {name} setelah pemeriksaan nama pertama."),
+    (r"\b(?P<name>\w+)\s+(?:nggak|tidak) terdeteksi\b.{0,100}?\belse\b.{0,100}?\b(?:nggak|gak|tidak) kenal\b",
+     "Gunakan else untuk nama yang tidak dikenali. Saat menguji nama {name}, program menampilkan pesan bahwa nama itu tidak dikenal."),
+)
+RANGE_RESULT = re.compile(
+    r"\brange\s*\(?\s*(?:(?P<start>-?\d+)\s*,\s*)?(?P<stop>-?\d+)(?!\d|\s*,\s*-?\d)\s*\)?"
+    r"(?:(?!\brange\b)[^!?]){0,110}?(?<!\w)(?P<first>-?\d+)\s+sampai\s+(?P<last>-?\d+)\b",
+    re.IGNORECASE,
+)
 INTRO_TOPICS = {
     "input": "masukan pengguna", "string": "teks", "integer": "bilangan bulat", "float": "bilangan desimal",
     "boolean": "nilai Boolean", "file": "berkas data", "pandas": "pengolahan data dengan pandas",
@@ -98,7 +118,7 @@ BOOLEAN_EXPERIMENTS = (
 )
 
 
-def input_demonstrations(segments: list[Segment]) -> list[StepSource]:
+def cue_offsets(segments: list[Segment]) -> tuple[str, list[int]]:
     parts = []
     offsets = []
     offset = 0
@@ -106,18 +126,43 @@ def input_demonstrations(segments: list[Segment]) -> list[StepSource]:
         offsets.append(offset)
         parts.append(segment.text)
         offset += len(parts[-1]) + 1
-    transcript = " ".join(parts)
+    return " ".join(parts), offsets
+
+
+def matched_cues(segments: list[Segment], offsets: list[int], match: re.Match) -> Segment:
+    start = bisect_right(offsets, match.start()) - 1
+    end = bisect_right(offsets, match.end() - 1)
+    return join_segments(segments[start:end])
+
+
+def input_demonstrations(segments: list[Segment], transcript: str, offsets: list[int]) -> list[StepSource]:
     demonstrations = []
     for pattern, wording, required_clause in INPUT_DEMONSTRATIONS:
         match = re.search(pattern, transcript, re.IGNORECASE)
         if match is None:
             continue
-        start = bisect_right(offsets, match.start()) - 1
-        end = bisect_right(offsets, match.end() - 1)
         demonstrations.append(StepSource(
-            join_segments(segments[start:end]), wording.format(**match.groupdict()),
+            matched_cues(segments, offsets, match), wording.format(**match.groupdict()),
             required_clause.format(**match.groupdict()),
         ))
+    return demonstrations
+
+
+def range_demonstrations(segments: list[Segment], transcript: str, offsets: list[int]) -> list[StepSource]:
+    demonstrations = []
+    seen = set()
+    for match in RANGE_RESULT.finditer(transcript):
+        start = int(match["start"] or 0)
+        stop = int(match["stop"])
+        if (start, stop) in seen or not (start <= stop - 1):
+            continue
+        if (int(match["first"]), int(match["last"])) != (start, stop - 1):
+            continue
+        call = f"range({start}, {stop})" if match["start"] is not None else f"range({stop})"
+        clause = f"menghasilkan angka {start} sampai {stop - 1}"
+        text = f"{call} pada perulangan for {clause}. Batas akhir {stop} tidak ikut diambil."
+        demonstrations.append(StepSource(matched_cues(segments, offsets, match), text, clause))
+        seen.add((start, stop))
     return demonstrations
 
 
@@ -148,7 +193,15 @@ def boolean_demonstrations(segments: list[Segment]) -> list[StepSource]:
 
 def prepare_step_sources(segments: list[Segment]) -> list[StepSource]:
     groups = group_segments(segments)
-    demonstrations = input_demonstrations(segments) + boolean_demonstrations(segments)
+    transcript, offsets = cue_offsets(segments)
+    demonstrations = []
+    if not OTHER_PROGRAMMING_LANGUAGE.search(transcript) or PYTHON.search(transcript):
+        demonstrations = input_demonstrations(segments, transcript, offsets) + boolean_demonstrations(segments)
+        demonstrations.extend(range_demonstrations(segments, transcript, offsets))
+        for pattern, wording in BRANCH_DEMONSTRATIONS:
+            if match := re.search(pattern, transcript, re.IGNORECASE):
+                wording = wording.format(**match.groupdict())
+                demonstrations.append(StepSource(matched_cues(segments, offsets, match), wording, wording))
     if len(demonstrations) >= 2:
         groups = [group for group in groups if ACTION.search(group.text)]
     else:
@@ -164,7 +217,8 @@ def prepare_step_sources(segments: list[Segment]) -> list[StepSource]:
         if pandas_action is not None and not CAUTION.search(text):
             sources.append(StepSource(group, *pandas_action))
             continue
-        sentences = [clean_sentence(sentence) for sentence in SENTENCE_END.split(text)]
+        sentences = [clean_sentence(sentence) for sentence in SENTENCE_END.split(text)
+                     if sentence.endswith((".", "!")) or ACTION.search(sentence)]
         sentences = [sentence for sentence in sentences if is_readable_statement(sentence)]
         actions = [sentence for sentence in sentences if ACTION.search(sentence)]
         useful = [sentence for sentence in sentences if not CHATTY.search(sentence)]
