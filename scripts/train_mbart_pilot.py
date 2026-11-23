@@ -28,7 +28,7 @@ LEARNING_RATE = 2e-5
 ROUGE = ("rouge1", "rouge2", "rougeL")
 
 
-def load_base_model(revision):
+def load_base_model(revision, *, device=DEVICE, dtype=DTYPE):
     config = AutoConfig.from_pretrained(PUBLIC_MODEL, revision=revision, local_files_only=True)
     with torch.device("meta"):
         model = AutoModelForSeq2SeqLM.from_config(config, attn_implementation="eager")
@@ -38,13 +38,15 @@ def load_base_model(revision):
     weights = torch.load(checkpoint, map_location="cpu", mmap=True, weights_only=True)
     shared_name = "model.shared.weight"
     shared_pointer = weights[shared_name].data_ptr()
-    # Cast on CPU one tensor at a time and transfer the tied embedding only once.
-    shared_embedding = weights[shared_name].to(DTYPE).to(DEVICE)
-    gpu_weights = {
-        name: shared_embedding if tensor.data_ptr() == shared_pointer else tensor.to(DTYPE).to(DEVICE)
+    source_embedding = weights[shared_name]
+    shared_embedding = torch.empty_like(source_embedding, dtype=dtype, device=device)
+    for source, destination in zip(source_embedding.split(4096), shared_embedding.split(4096), strict=True):
+        destination.copy_(source.to(dtype))
+    model_weights = {
+        name: shared_embedding if tensor.data_ptr() == shared_pointer else tensor.to(dtype).to(device)
         for name, tensor in weights.items()
     }
-    model.load_state_dict(gpu_weights, assign=True)
+    model.load_state_dict(model_weights, assign=True)
     model.tie_weights()
     return model
 

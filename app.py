@@ -6,11 +6,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from src.code_text import highlight_code, technical_terms
-from src.evaluation import summary_metrics
-from src.evaluation_view import show_evaluation
+from src.code_text import highlight_code
+from src.gemini_preprocessing import GEMINI_QUOTA_NOTICE
 from src.media import MediaError
-from src.pipeline import Guide, Progress, build_guide, build_youtube_guide, inspect_youtube
+from src.pipeline import Guide, Progress, YouTubeInspection, build_youtube_guide, inspect_youtube
 
 
 log = logging.getLogger(__name__)
@@ -19,7 +18,7 @@ UNREADABLE_STEP = "Ucapan di bagian ini belum cukup jelas untuk diringkas."
 UNAVAILABLE_SUMMARY = {
     "no_speech": "Narasi tidak terdeteksi. Video tetap bisa diputar untuk memeriksa audionya.",
     "out_of_scope": "Transkripnya tidak menunjukkan materi pemrograman yang cukup untuk dirangkum.",
-    "unclear": "Topik atau penjelasannya belum cukup jelas untuk dibuat ringkasan yang akurat.",
+    "unclear": "Belum ada bagian teknis yang bisa dijadikan poin. Periksa transkrip dan pembacaan layar di Hasil tiap tahap.",
 }
 
 
@@ -31,7 +30,7 @@ def timestamp(seconds: float) -> str:
 
 
 def reset_guide() -> None:
-    for key in ("guide", "video_name", "seek_start", "seek_revision", "guide-evaluation", "step-reviews", "audit-step", "pending-youtube"):
+    for key in ("guide", "video_name", "seek_start", "seek_revision", "pending-youtube", "youtube-link", "youtube-cancelled"):
         st.session_state.pop(key, None)
 
 
@@ -42,8 +41,16 @@ def seek(seconds: float) -> None:
 
 def process_guide(name: str, build: Callable[[Progress], Guide]) -> None:
     progress = st.progress(0.0, text="Menyiapkan panduan…")
+    notice = st.empty()
+
+    def report_progress(value: float, text: str) -> None:
+        if text == GEMINI_QUOTA_NOTICE:
+            notice.warning(text)
+        else:
+            progress.progress(value, text=text)
+
     try:
-        guide = build(lambda value, text: progress.progress(value, text=text))
+        guide = build(report_progress)
     except MediaError as error:
         progress.empty()
         log.info("Panduan tidak dapat diproses: %s", error)
@@ -62,37 +69,40 @@ def process_guide(name: str, build: Callable[[Progress], Guide]) -> None:
     st.rerun()
 
 
-def upload_view() -> None:
+def youtube_view() -> None:
     with st.container(key="page-heading"):
         st.title("Ringkas video tutorial")
-        st.write("Dapatkan poin utama dan hasil percobaan dari tutorial pemrograman berbahasa Indonesia.")
+        st.write("Ringkas tutorial pemrograman berbahasa Indonesia dari YouTube.")
 
-    with st.container(key="upload-layout"):
-        sources, notes = st.columns([5, 3], gap="large")
-        with sources:
-            upload_tab, youtube_tab = st.tabs(["Unggah MP4", "Link YouTube"])
-            with upload_tab, st.container(key="upload-panel", border=True):
-                video = st.file_uploader("Video tutorial", type=["mp4"], key="video-upload")
-                make_guide = st.button(
-                    "Buat Panduan", type="primary", key="make-mp4-guide", disabled=video is None,
-                )
-                if make_guide and video is not None:
-                    process_guide(video.name, lambda progress: build_guide(video.getvalue(), progress))
-
-            with youtube_tab, st.container(key="youtube-panel", border=True):
-                show_youtube_input()
-        with notes, st.container(key="upload-notes"):
-            st.subheader("Sebelum mulai")
-            st.markdown(
-                "- Pilih tutorial pemrograman dengan narasi bahasa Indonesia yang jelas.\n"
-                "- Untuk uji pertama, gunakan klip pendek. Pemuatan model pertama bisa lebih lama."
-            )
-            st.caption("Video dan panduan tersedia selama sesi ini.")
+    with st.container(key="youtube-panel", border=True):
+        show_youtube_input()
 
 
 def cancel_youtube_check() -> None:
     st.session_state.pop("pending-youtube", None)
     st.session_state["youtube-cancelled"] = True
+
+
+@st.dialog("Periksa sumber transkrip")
+def confirm_youtube_processing(inspection: YouTubeInspection) -> None:
+    if inspection.captions is None:
+        st.warning("Subtitle bahasa Indonesia belum ditemukan. Whisper bisa mentranskripsi audio, tetapi nama fungsi atau angka mungkin salah terbaca.")
+    else:
+        st.warning("Subtitle bahasa Indonesia terdeteksi, tetapi teksnya sulit dibaca. Jika dilanjutkan, aplikasi akan membandingkannya dengan transkrip Whisper sebelum membuat ringkasan.")
+    actions = st.empty()
+    with actions.container():
+        with st.container(key="youtube-dialog-actions"):
+            cancel, proceed = st.columns(2, gap="small")
+            cancel_clicked = cancel.button("Batal")
+            proceed_clicked = proceed.button("Lanjut dengan Whisper", type="primary")
+    if cancel_clicked:
+        cancel_youtube_check()
+        st.rerun()
+    if proceed_clicked:
+        st.session_state.pop("pending-youtube", None)
+        actions.empty()
+        with actions.container():
+            process_guide("YouTube", lambda progress: build_youtube_guide(inspection, progress))
 
 
 def show_youtube_input() -> None:
@@ -104,97 +114,37 @@ def show_youtube_input() -> None:
     if pending is not None and pending[0] != link:
         st.session_state.pop("pending-youtube")
         pending = None
-    if st.button("Buat Panduan", type="primary", key="make-youtube-guide", disabled=not link or pending is not None):
+    if st.button("Buat Panduan", type="primary", key="make-youtube-guide", disabled=not link) and pending is None:
         try:
             with st.spinner("Memeriksa subtitle bahasa Indonesia…"):
                 inspection = inspect_youtube(link)
         except MediaError as error:
             st.error(str(error))
         else:
-            if inspection.captions is not None:
+            if inspection.captions is not None and not inspection.captions_need_review:
+                _, subtitle_source = inspection.captions
+                st.toast(f"{subtitle_source} terdeteksi. Aplikasi akan memeriksa kualitasnya sebelum merangkum.")
                 process_guide("YouTube", lambda progress: build_youtube_guide(inspection, progress))
             else:
                 st.session_state["pending-youtube"] = (link, inspection)
                 st.rerun()
     if pending is not None:
-        st.warning("Subtitle bahasa Indonesia belum ditemukan. Whisper bisa mentranskripsi audio, tetapi nama fungsi atau angka mungkin salah terbaca.")
-        proceed, cancel = st.columns([2, 1], gap="small")
-        if proceed.button("Lanjut dengan Whisper", type="primary"):
-            st.session_state.pop("pending-youtube")
-            process_guide("YouTube", lambda progress: build_youtube_guide(pending[1], progress))
-        cancel.button("Batal", on_click=cancel_youtube_check)
-
-
-def show_step_audit(guide: Guide) -> None:
-    if not guide.steps:
-        st.caption("Audit tersedia setelah aplikasi menemukan bagian tutorial yang bisa diperiksa.")
-        return
-    st.caption("Bandingkan ringkasan dengan masukan mBART dan transkrip aslinya, lalu catat penilaianmu per langkah.")
-    index = st.selectbox(
-        "Langkah yang diperiksa", range(len(guide.steps)), key="audit-step",
-        format_func=lambda index: f"{timestamp(guide.steps[index].start)} · {(guide.steps[index].summary or UNREADABLE_STEP)[:75]}",
-    )
-    step = guide.steps[index]
-    st.button("Putar langkah ini", key="audit-seek", on_click=seek, args=(step.start,))
-    original, rendered = st.columns(2)
-    with original:
-        st.markdown("**Teks masukan mBART**")
-        st.html(f'<p class="step-copy">{highlight_code(step.model_input)}</p>')
-    with rendered:
-        st.markdown("**Ringkasan langkah**")
-        st.html(f'<p class="step-copy">{highlight_code(step.summary or UNREADABLE_STEP)}</p>')
-        if step.summary:
-            st.caption("Disusun dari teks sumber" if step.is_excerpt else "Keluaran mBART")
-
-    source_terms = technical_terms(step.model_input) if step.summary else set()
-    missing = sorted(source_terms - technical_terms(step.summary))
-    if source_terms:
-        st.progress(
-            (len(source_terms) - len(missing)) / len(source_terms),
-            text=f"Istilah teknis yang muncul kembali · {len(source_terms) - len(missing)} dari {len(source_terms)}",
-        )
-        if missing:
-            st.text("Tidak muncul dalam ringkasan · " + ", ".join(missing))
-    if step.model_input and step.summary:
-        overlap = summary_metrics(step.model_input, step.summary)["rougeL"]
-        st.caption(f"Kemiripan urutan kata terhadap masukan mBART · {overlap:.1%} (ROUGE-L F1).")
-    with st.expander("Lihat transkrip sumber"):
-        st.text(step.transcript)
-
-    aspects = ("Kejelasan ringkasan", "Informasi penting", "Ketepatan pemilihan segmen")
-    ratings = ["Sesuai", "Perlu perbaikan"]
-    reviews = st.session_state.setdefault("step-reviews", {})
-    saved = reviews.get(index, {})
-    with st.form(f"review-step-{index}", border=False):
-        answers = {
-            aspect: st.radio(
-                aspect, ratings, index=ratings.index(saved[aspect]) if saved.get(aspect) in ratings else None,
-                horizontal=True,
-            ) for aspect in aspects
-        }
-        note = st.text_area("Catatan kesalahan", value=saved.get("note", ""), placeholder="Contoh: fungsi disebut salah atau konteksnya hilang.")
-        if st.form_submit_button("Simpan penilaian") and (any(answers.values()) or note.strip()):
-            reviews[index] = {**answers, "note": note}
-            st.caption("Penilaian tersimpan selama sesi ini.")
-    if reviews:
-        st.caption(f"Langkah yang sudah ditinjau · {len(reviews)} dari {len(guide.steps)}")
+        confirm_youtube_processing(pending[1])
 
 
 def show_analysis(guide: Guide) -> None:
     transcript = " ".join(segment.text for segment in guide.transcript)
-    summary = " ".join(guide.summary_points)
-    model_input = " ".join(step.model_input for step in guide.steps)
-    step_count = sum(bool(step.summary) for step in guide.steps)
     engine = "faster-whisper · CPU INT8" if guide.transcription_backend == "faster" else "OpenAI Whisper · CPU"
     source = guide.transcript_source or f"Whisper {Path(guide.transcription_model).name} · {engine} · {guide.transcription_beam_size} beam"
-    media = "YouTube" if isinstance(guide.video, str) else "MP4 tervalidasi"
     preprocessing = getattr(guide, "preprocessing", "Tidak tercatat")
+    visual = getattr(guide, "visual", None)
+    gemini = getattr(visual, "gemini_model", "")
     outputs = (
-        ("Sumber video", media),
         ("Transkrip", f"{len(guide.transcript)} segmen · {len(transcript.split())} kata"),
-        ("Preprocessing", f"{preprocessing} · {len(guide.steps)} bagian"),
-        ("mBART-50", f"{len(model_input.split())} kata sebagai masukan" if model_input.strip() else "Tidak ada masukan yang layak"),
-        ("Ringkasan", f"{step_count} segmen diringkas" if step_count else "Tidak tersedia"),
+        ("Praproses", f"{len(guide.steps)} bagian dipilih"),
+        ("OCR lokal", f"{visual.frames} frame diperiksa") if visual and visual.frames else None,
+        ("Gemini", f"{gemini} · {visual.gemini_evidence} bukti terverifikasi") if gemini else None,
+        ("Peringkasan", f"{len(guide.summary_points)} poin · {preprocessing}"),
     )
     with st.container(key="analysis-panel"):
         st.subheader("Analisis pemrosesan")
@@ -202,17 +152,11 @@ def show_analysis(guide: Guide) -> None:
             '<ol class="pipeline-flow" aria-label="Alur pemrosesan">'
             + "".join(
                 f'<li><strong>{escape(label)}</strong><span>{escape(value)}</span></li>'
-                for label, value in outputs
+                for label, value in (item for item in outputs if item)
             )
             + "</ol>"
         )
-        flow, scores, audit = st.tabs(["Alur dan waktu", "Skor acuan", "Audit langkah"])
-        with scores:
-            show_evaluation(transcript, summary, model_input)
-        with audit:
-            show_step_audit(guide)
-        with flow:
-            show_pipeline_details(guide, source)
+        show_pipeline_details(guide, source)
 
 
 def show_pipeline_details(guide: Guide, source: str) -> None:
@@ -221,10 +165,22 @@ def show_pipeline_details(guide: Guide, source: str) -> None:
     preprocessing_note = getattr(guide, "preprocessing_note", "")
     if preprocessing_note:
         st.caption(preprocessing_note)
+    visual = getattr(guide, "visual", None)
+    if visual and visual.note:
+        st.caption(visual.note)
     if guide.timings is not None:
         st.markdown("**Waktu per tahap**")
         stages = ["Media", "Transkrip", "Preprocessing dan ringkasan"]
         values = [guide.timings.media, guide.timings.transcription, guide.timings.summarization]
+        if visual and visual.frames:
+            gemini_seconds = getattr(visual, "gemini_seconds", 0)
+            stages = [*stages[:2], "Ekstraksi frame dan OCR"]
+            values = [*values[:2], visual.seconds]
+            if gemini_seconds:
+                stages.append("Gemini")
+                values.append(gemini_seconds)
+            stages.append("Penyusunan dan ringkasan")
+            values.append(max(0, guide.timings.summarization - visual.seconds - gemini_seconds))
         base = alt.Chart(pd.DataFrame([
             {"Tahap": stage, "Detik": round(duration, 2)} for stage, duration in zip(stages, values, strict=True)
         ])).encode(
@@ -243,8 +199,6 @@ def show_pipeline_details(guide: Guide, source: str) -> None:
         st.caption(f"Total {guide.processing_seconds:.1f} detik · {source}")
 
     with st.expander("Hasil tiap tahap"):
-        st.markdown("**Media**")
-        st.text(guide.video if isinstance(guide.video, str) else f"MP4 siap diputar · {len(guide.video) / 1_000_000:.2f} MB")
         st.markdown("**Transkrip**")
         st.caption(source)
         if guide.transcript_note:
@@ -273,7 +227,7 @@ def show_pipeline_details(guide: Guide, source: str) -> None:
             st.caption(f"Model ringkasan {guide.model}")
         excerpts = sum(step.is_excerpt for step in guide.steps)
         if excerpts:
-            st.caption(f"{excerpts} dari {len(guide.steps)} langkah memakai teks sumber setelah pemeriksaan keluaran mBART.")
+            st.caption(f"{excerpts} dari {len(guide.steps)} langkah memakai teks sumber setelah pemeriksaan keluaran model.")
 
 
 def guide_view(guide: Guide) -> None:
@@ -285,6 +239,9 @@ def guide_view(guide: Guide) -> None:
         with controls:
             st.button("Ganti video", on_click=reset_guide)
 
+    if getattr(guide, "gemini_quota_exhausted", False):
+        st.warning(GEMINI_QUOTA_NOTICE)
+
     with st.container(key="guide-layout"):
         player, summary = st.columns([3, 2], gap="large")
         selected = st.session_state.seek_start
@@ -293,8 +250,7 @@ def guide_view(guide: Guide) -> None:
             st.subheader("Video")
             with st.container(key=f"player-{st.session_state.seek_revision % 2}"):
                 st.video(guide.video, start_time=int(start), autoplay=selected is not None)
-            if isinstance(guide.video, str):
-                st.link_button("Buka di YouTube", f"{guide.video}&t={int(start)}s")
+            st.link_button("Buka di YouTube", f"{guide.video}&t={int(start)}s")
         with summary, st.container(key="summary-pane"):
             if guide.overview and guide.overview.text:
                 st.subheader("Tentang video")
@@ -304,8 +260,6 @@ def guide_view(guide: Guide) -> None:
                 st.html('<ul class="summary-points">' + "".join(
                     f"<li>{highlight_code(point)}</li>" for point in guide.summary_points
                 ) + "</ul>")
-                if any(not step.summary for step in guide.steps):
-                    st.caption("Segmen yang kurang jelas bisa diperiksa di Audit langkah.")
             else:
                 st.info(UNAVAILABLE_SUMMARY.get(guide.status, UNAVAILABLE_SUMMARY["unclear"]))
     show_analysis(guide)
@@ -317,7 +271,10 @@ st.html(
     '<div class="app-masthead"><span class="app-glyph" aria-hidden="true">&gt;_</span>'
     '<span>Panduan Pemrograman</span></div>'
 )
-if "guide" in st.session_state:
-    guide_view(st.session_state.guide)
+active_guide = st.session_state.get("guide")
+if active_guide is not None and isinstance(active_guide.video, str):
+    guide_view(active_guide)
 else:
-    upload_view()
+    if active_guide is not None:
+        reset_guide()
+    youtube_view()

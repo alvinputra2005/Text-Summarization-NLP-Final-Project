@@ -7,7 +7,9 @@ File unduhan ada di `data/raw/`. File siap dimuat ada di `data/processed/`. Kedu
 | IndoSum | `processed/indosum/{train,validation,test}.csv` | Eksperimen mBART pada fold resmi `01`. Tersedia 14.261 contoh latih, 750 validasi, dan 3.762 uji. |
 | FLEURS Indonesia | `processed/fleurs/test.csv` dan `audio/` | Evaluasi Whisper dengan 687 audio WAV pada split uji resmi `id_id`, serta transkrip asli dan versi normalisasi FLEURS. |
 | LUMINA v4 | `processed/lumina/test.csv` dan `clips/` | Uji Whisper dan unggah MP4. Sampel 48 klip dari empat penutur dengan transkrip resmi. |
-| NSS-ID · Imperative | `processed/nss-id/test.csv` dan `audio/` | Pembanding Whisper pada 24 klip manusia dari 3 penutur split uji resmi. |
+| Pembagian LUMINA untuk notebook | `processed/lumina_split/{train,validation,test}.csv` | 24/12/12 klip dari sampel LUMINA yang sama, dibagi berdasarkan penutur. |
+| NSS-ID · Imperative | `processed/nss-id/{train,val,test}.csv` dan `audio/` | Sampel penutur manusia dari split resmi untuk fine-tuning dan evaluasi Whisper. |
+| Audio coding untuk Whisper | `processed/whisper_video/{train,validation,test}.csv` dan `audio/` | Empat video tutorial Python dengan subtitle otomatis. Split per video menyediakan 20/12/12 klip. |
 | Coding pilot | `processed/coding_pilot/{train,validation,test}.csv` | 108 contoh sintetis orisinal untuk LoRA mBART. Skenario dipisah utuh menjadi 56 latih, 24 validasi, dan 28 uji. |
 | Coding video mix | `processed/coding_video_mix/{train,validation,test}.csv` | 33 cuplikan Python Indonesia beranotasi dari 12 video, 28 contoh sintetis, dan 10 cuplikan CrossTask untuk data latih tambahan. |
 | The Vault Function | `processed/multilingual_code/{train,validation,test}.csv` | 50 fungsi latih dan masing-masing 20 pada validasi serta uji. Bahasa mencakup C, C#, C++, Go, Java, JavaScript, PHP, Python, Ruby, dan Rust. |
@@ -42,6 +44,8 @@ Pilot coding mencakup perulangan, percabangan, fungsi, pandas, dan Boolean. Kelu
 ```
 
 NSS-ID memakai rekaman penutur manusia dari kategori Imperative dan split uji resmi. Sampelnya mengukur pengenalan ucapan umum. Untuk uji istilah coding, cocokkan keluaran Whisper dengan narasi dari tutorial beranotasi. [Kartu NSS-ID dan lisensi](https://huggingface.co/datasets/Atika88/Indonesian-ASR-11-Class-Dataset) · [Artikel dataset](https://pmc.ncbi.nlm.nih.gov/articles/PMC13634895/)
+
+Langkah menyiapkan split latih NSS-ID dan klip audio dua video coding ada di [panduan notebook](../notebooks/README.md#siapkan-data).
 
 ```powershell
 New-Item -ItemType Directory -Force data/raw/nss-id

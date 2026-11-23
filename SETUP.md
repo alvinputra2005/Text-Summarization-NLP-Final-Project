@@ -49,16 +49,17 @@ $transcript.segments | Select-Object -First 3 start, end, text | Format-Table -W
 
 Jika ingin mengaktifkan Gemini, isi `GEMINI_API_KEY` di `.env` sesuai [panduan Gemini](README.md#aktifkan-preprocessing-gemini), lalu jalankan `& $projectPython -m scripts.check_gemini` untuk menguji koneksi dengan transkrip sintetis.
 
+Untuk membaca kode yang terlihat di video, pasang Tesseract dengan data bahasa `eng`. Jalankan `tesseract --list-langs` untuk memeriksanya. Bila binari berada di lokasi khusus, atur `TESSERACT_EXE` ke path binari sebelum menjalankan Streamlit. [Panduan pemasangan Tesseract](https://tesseract-ocr.github.io/tessdoc/Installation.html)
+
 ```powershell
 & $projectPython -m streamlit run app.py --server.address 127.0.0.1
 ```
 
-- Unggah MP4 dan tekan **Buat Panduan**. Periksa bahwa model yang ditampilkan sesuai konfigurasi.
-- Buka tab **Link YouTube**, tempel link video publik bernarasi, lalu tekan **Buat Panduan**. Di **Hasil tiap tahap**, periksa apakah sumber transkripnya subtitle YouTube atau Whisper.
+- Tempel tautan video publik bernarasi dan tekan **Buat Panduan**. Di **Hasil tiap tahap**, periksa checkpoint mBART dan sumber transkrip dari subtitle YouTube atau Whisper.
 - Di **Analisis pemrosesan**, periksa apakah preprocessing memakai Gemini atau alur lokal.
+- Periksa jumlah frame dan langkah yang mendapat konteks tambahan dari OCR. Jika API Gemini mencapai batas penggunaan, aplikasi menampilkan peringatan dan meneruskan pembuatan panduan secara lokal.
 - Jika subtitle Indonesia belum ditemukan, **Lanjut dengan Whisper** memulai transkripsi audio. **Batal** kembali ke pilihan sumber.
-- Periksa **Poin utama** di samping video. Untuk memeriksa sumber, pilih segmen dari **Audit langkah** dan tekan **Putar langkah ini**.
-- Buka **Skor acuan** dan masukkan transkrip atau ringkasan referensi yang sesuai.
-- Pilih **Ganti video** dan pastikan hasil sebelumnya hilang. Uji pesan untuk MP4 rusak atau tanpa audio, lalu periksa status di panel ringkasan untuk video hening atau di luar cakupan.
+- Periksa **Poin utama** di samping video. Untuk memeriksa sumber, pilih segmen dari **Hasil tiap tahap** dan tekan **Putar segmen**.
+- Pilih **Ganti video** dan pastikan formulir YouTube tampil kembali dengan kolom tautan kosong.
 
 `.gitignore` mencakup lingkungan Python, unggahan, checkpoint, keluaran, video contoh lokal, dan rahasia konfigurasi. Jika model gagal dimuat, periksa akses ke Hugging Face, ruang cache, serta kelengkapan tokenizer dan bobot pada checkpoint yang dipilih.

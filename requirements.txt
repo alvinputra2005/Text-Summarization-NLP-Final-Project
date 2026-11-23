@@ -9,3 +9,4 @@ yt-dlp[default]>=2025.11.12
 jiwer
 rouge-score
 python-dotenv>=1,<2
+Pillow>=10,<14

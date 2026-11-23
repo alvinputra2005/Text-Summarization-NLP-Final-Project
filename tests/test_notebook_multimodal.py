@@ -1,0 +1,67 @@
+from dataclasses import asdict
+from unittest import TestCase
+from unittest.mock import patch
+
+from scripts.notebook_multimodal import (
+    OCRLine, clean_cues, confirm_gemini, consensus, contains_condition, find_evidence, gemini_vision,
+)
+from src.gemini_preprocessing import GeminiConfig
+from src.segmentation import Segment
+
+
+def frame(second, action, condition="if angka == 3:"):
+    lines = [
+        OCRLine("while angka < 5:", 16, 10, 95),
+        OCRLine(condition, 65, 30, 94),
+        OCRLine(action, 99, 42, 91),
+    ]
+    return {"frame_id": f"frame-{second}", "second": second, "observations": [asdict(item) for item in find_evidence(lines)],
+            "jpeg": "Zml4dHVyZQ=="}
+
+
+class MultimodalEvidenceTest(TestCase):
+    def test_cleaning_keeps_negation_identifiers_and_original(self):
+        source = " Nah, nggak jalanin saat gak = 3 dan parameter nggak dipakai. "
+        rows = clean_cues([Segment(1, 4, source)], 0, 7)
+        self.assertEqual(rows[0]["original"], source)
+        self.assertEqual(rows[0]["cleaned"], "tidak menjalankan saat gak = 3 dan parameter nggak dipakai.")
+
+    def test_commented_break_never_counts_and_requires_two_active_frames(self):
+        frames = [frame(310, "# break"), frame(315, "break"), frame(318, "break")]
+        self.assertFalse(frames[0]["observations"][0]["active"])
+        self.assertIsNone(consensus(frames[:2]))
+        self.assertEqual(consensus(frames)["frames"], ["frame-315", "frame-318"])
+        self.assertEqual(consensus(frames)["expression"], "angka == 3")
+        self.assertIsNone(consensus([frame(315, "break"), frame(318, "break", "if angka = 3:")]))
+        self.assertIsNone(consensus([frame(315, "break"), frame(318, "break", "if angka == 4:")]))
+
+    def test_condition_check_rejects_partial_numbers_and_actions_in_nested_blocks(self):
+        self.assertTrue(contains_condition("Saat angka==3.", "angka == 3"))
+        self.assertFalse(contains_condition("Saat angka == 30.", "angka == 3"))
+        self.assertFalse(contains_condition("Saat angka == 3.5.", "angka == 3"))
+        self.assertFalse(find_evidence([
+            OCRLine("while angka < 5:", 16, 10, 95),
+            OCRLine("if angka == 3:", 65, 30, 94),
+            OCRLine("if siap:", 99, 42, 91),
+            OCRLine("break", 143, 52, 96),
+        ]))
+
+    def test_multimodal_request_uses_crops_or_bounded_video_and_validates_response(self):
+        frames = [frame(315, "break"), frame(318, "break")]
+        trace = [{"cleaned": "Kalau ini nilainya tiga, kondisi break terpenuhi."}]
+        response = {"speech_quote": trace[0]["cleaned"], "condition": "if angka == 3:", "referent": "angka",
+                    "action": "break", "frame_ids": ["frame-315", "frame-318"]}
+        with patch("scripts.notebook_multimodal.gemini_config", return_value=GeminiConfig("test-key")), patch(
+            "scripts.notebook_multimodal.request_gemini_json", return_value=(response, {"totalTokenCount": 123}),
+        ) as request:
+            image_result = gemini_vision(frames, trace, 312, 320, "frames", "")
+            content = request.call_args.args[1]["contents"][0]["parts"]
+            self.assertEqual(sum("inlineData" in part for part in content), 2)
+            video_result = gemini_vision(frames, trace, 312, 320, "youtube", "https://youtu.be/B6scLunzn0I")
+            media = request.call_args.args[1]["contents"][0]["parts"][-1]
+            self.assertEqual(media["videoMetadata"]["endOffset"], "320.0s")
+        self.assertEqual(image_result["usage"], {"totalTokenCount": 123})
+        self.assertTrue(confirm_gemini(image_result, consensus(frames), trace))
+        self.assertTrue(confirm_gemini(video_result, consensus(frames), trace))
+        response["condition"] = "if angka == 9:"
+        self.assertFalse(confirm_gemini(image_result, consensus(frames), trace))

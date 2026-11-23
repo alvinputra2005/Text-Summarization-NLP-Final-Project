@@ -5,7 +5,8 @@ from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
-from src.pipeline import Guide, YouTubeInspection
+from src.gemini_preprocessing import GEMINI_QUOTA_NOTICE
+from src.pipeline import Guide, Step, VisualProcessing, YouTubeInspection
 from src.segmentation import Segment
 
 
@@ -16,6 +17,8 @@ class YouTubeConfirmationTests(unittest.TestCase):
 
     def check_link(self):
         app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run()
+        self.assertFalse(app.get("file_uploader"))
+        self.assertFalse(app.tabs)
         app.text_input(key="youtube-link").set_value(self.link).run()
         app.button(key="make-youtube-guide").click().run()
         self.assertFalse(app.exception)
@@ -56,6 +59,44 @@ class YouTubeConfirmationTests(unittest.TestCase):
             self.assertEqual(build.call_args.args[0], self.inspection)
             self.assertEqual(build.call_count, 1)
 
+    def test_quota_warning_stays_visible_after_making_the_guide(self):
+        captions = [Segment(1, 5, "Gunakan range(5).")]
+        source = YouTubeInspection(self.inspection.video, (captions, "Subtitle Indonesia"), 0.3)
+        guide = Guide(source.video, [], "test-mbart", gemini_quota_exhausted=True)
+        with patch("src.pipeline.inspect_youtube", return_value=source), patch(
+            "src.pipeline.build_youtube_guide", return_value=guide,
+        ):
+            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=10).run()
+            app.text_input(key="youtube-link").set_value(self.link).run()
+            app.button(key="make-youtube-guide").click().run()
+            self.assertFalse(app.exception)
+            self.assertIn(GEMINI_QUOTA_NOTICE, [warning.value for warning in app.warning])
+            self.assertEqual(app.title[0].value, "Ringkasan video")
+
+    def test_visual_guide_shows_gemini_and_transcript_without_research_scores(self):
+        cue = Segment(1, 5, "Gunakan break.")
+        step = Step(1, 5, cue.transcript, "Berhenti saat angka == 3.", False)
+        guide = Guide(self.inspection.video, [step], "test-mbart", transcript=(cue,),
+                      visual=VisualProcessing(2, 1, 0.5, gemini_model="gemini-test", gemini_evidence=1))
+        app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=10)
+        app.session_state["guide"] = guide
+        app.session_state["video_name"] = "YouTube"
+        app.session_state["seek_start"] = None
+        app.session_state["seek_revision"] = 0
+        app.run()
+        self.assertFalse(app.exception)
+        rendered = " ".join(item.value for item in app.get("html"))
+        self.assertIn("gemini-test · 1 bukti terverifikasi", rendered)
+        self.assertIn("Gunakan break.", rendered)
+        self.assertIn("<code>angka == 3</code>", rendered)
+        self.assertNotIn("ROUGE", rendered)
+        self.assertFalse(app.tabs)
+        self.assertFalse(app.text_area)
+        next(button for button in app.button if button.label == "Putar segmen").click().run()
+        self.assertEqual(app.session_state["seek_start"], 1)
+        next(button for button in app.button if button.label == "Ganti video").click().run()
+        self.assertEqual(app.text_input(key="youtube-link").value, "")
+
     def test_editing_the_link_clears_the_old_confirmation(self):
         with patch("src.pipeline.inspect_youtube", return_value=self.inspection), patch("src.pipeline.build_youtube_guide") as build:
             app = self.check_link()
@@ -74,5 +115,25 @@ class YouTubeConfirmationTests(unittest.TestCase):
             app.button(key="make-youtube-guide").click().run()
             self.assertFalse(app.exception)
             self.assertFalse(app.warning)
+            self.assertEqual(build.call_count, 1)
+            self.assertEqual(build.call_args.args[0], source)
+
+    def test_unreadable_subtitles_wait_for_whisper_confirmation(self):
+        cues = [Segment(i, i + 1, "nah anu gitu ya") for i in range(12)]
+        source = YouTubeInspection(self.inspection.video, (cues, "Subtitle otomatis YouTube"), 0.3)
+        guide = Guide(source.video, [], "test-mbart", status="unclear")
+        with patch("src.pipeline.inspect_youtube", return_value=source), patch(
+            "src.pipeline.build_youtube_guide", return_value=guide,
+        ) as build:
+            app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=10).run()
+            app.text_input(key="youtube-link").set_value(self.link).run()
+            app.button(key="make-youtube-guide").click().run()
+            self.assertTrue(any("teksnya sulit dibaca" in item.value for item in app.warning))
+            build.assert_not_called()
+            next(button for button in app.button if button.label == "Batal").click().run()
+            build.assert_not_called()
+            app.button(key="make-youtube-guide").click().run()
+            next(button for button in app.button if button.label == "Lanjut dengan Whisper").click().run()
+            self.assertFalse(app.exception)
             self.assertEqual(build.call_count, 1)
             self.assertEqual(build.call_args.args[0], source)

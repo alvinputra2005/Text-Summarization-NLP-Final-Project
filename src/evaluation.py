@@ -9,6 +9,16 @@ def normalize(text: str) -> str:
     return " ".join(re.findall(r"[^\W_]+", text.casefold()))
 
 
+def exact_code_details(details: list[str], points: list[str]) -> list[dict]:
+    results = []
+    for detail in details:
+        tokens = re.findall(r"\w+|==|\+=|[^\s]", detail)
+        pattern = r"\s*".join(map(re.escape, tokens))
+        present = bool(tokens) and any(re.search(rf"(?<!\w){pattern}(?!\w|\.\d)", point) for point in points)
+        results.append({"detail": detail, "present": present})
+    return results
+
+
 def annotated_detail_recall(rows, predictions):
     totals = 0
     matched = 0

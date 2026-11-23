@@ -1,0 +1,60 @@
+[
+  {
+    "id": "instruction-in-intro",
+    "title": "Instruksi di dalam kalimat pembuka",
+    "transcript": [
+      {"start": 1, "end": 8, "transcript": "Selamat datang, gunakan kode nama[1:4] untuk mengambil bagian dari string."}
+    ],
+    "facts": [
+      {"start": 1, "end": 8, "summary": "Ambil bagian string dengan nama[1:4].", "terms": [["nama"], ["ambil", "mengambil"], ["string"]]}
+    ],
+    "code_details": ["nama[1:4]"]
+  },
+  {
+    "id": "noisy-strings",
+    "title": "Istilah string salah tangkap dan instruksi terpotong",
+    "transcript": [
+      {"start": 0, "end": 4, "transcript": "Ini pengenalan string. String itu kubulan dari karakter."},
+      {"start": 4, "end": 8, "transcript": "Pakai single-quad untuk membatasi string"},
+      {"start": 8, "end": 12, "transcript": "Oke anu yang ini ya gitulah"},
+      {"start": 15, "end": 20, "transcript": "Tambahkan karakter dengan backslash t untuk memberi jarak."},
+      {"start": 20, "end": 24, "transcript": "Pakai len(teks) untuk menghitung"},
+      {"start": 24, "end": 27, "transcript": "jumlah karakter pada string"}
+    ],
+    "facts": [
+      {"start": 0, "end": 4, "summary": "String tersusun dari rangkaian karakter.", "terms": [["string"], ["kumpulan", "rangkaian"], ["karakter"]]},
+      {"start": 4, "end": 8, "summary": "Gunakan tanda kutip tunggal sebagai pembatas string.", "terms": [["kutip tunggal"], ["string"]]},
+      {"start": 15, "end": 20, "summary": "Sisipkan tab ke dalam string.", "terms": [["tab"]]},
+      {"start": 20, "end": 27, "summary": "Panggil len(teks) untuk menghitung jumlah karakter.", "terms": [["len"], ["jumlah"], ["karakter"]]}
+    ],
+    "code_details": ["\\t", "len(teks)"]
+  },
+  {
+    "id": "silent-branch",
+    "title": "Demonstrasi percabangan tanpa ucapan",
+    "transcript": [],
+    "screen_code": [
+      "if stok >= 12:",
+      "     print(\"Kirim\")",
+      "elif stok > 4:",
+      "     print(\"Tunggu\")",
+      "else:",
+      "     print(\"Habis\")"
+    ],
+    "facts": [
+      {"start": 0, "end": 15, "summary": "Jika stok minimal 12, tampilkan Kirim.", "terms": [["stok"], ["12"], ["kirim"]]},
+      {"start": 0, "end": 15, "summary": "Jika pemeriksaan pertama gagal dan stok di atas 4, tampilkan Tunggu.", "terms": [["stok"], ["4"], ["tunggu"]]},
+      {"start": 0, "end": 15, "summary": "Tampilkan Habis jika semua kondisi sebelumnya gagal.", "terms": [["else"], ["habis"]]}
+    ],
+    "code_details": ["stok >= 12", "stok > 4", "print(\"Habis\")"]
+  },
+  {
+    "id": "unrelated",
+    "title": "Narasi memasak sebagai kontrol negatif",
+    "transcript": [
+      {"start": 1, "end": 10, "transcript": "Cuci sayuran dengan air bersih. Rebus kentang sampai empuk, kemudian tiriskan dan pindahkan ke piring."}
+    ],
+    "facts": [],
+    "code_details": []
+  }
+]

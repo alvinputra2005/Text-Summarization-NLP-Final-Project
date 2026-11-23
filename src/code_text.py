@@ -5,10 +5,11 @@ import re
 IDENTIFIER = r"[A-Za-z_]\w*"
 QUALIFIED = rf"{IDENTIFIER}(?:\.{IDENTIFIER})*"
 CODE_TOKEN = (
-    rf"\b{QUALIFIED}\(\)|\b{QUALIFIED}(?=\()"
+    rf"`[^`\n]+`|\b{QUALIFIED}\(\)|\b{QUALIFIED}(?=\()"
+    rf"|\b{IDENTIFIER}\s*(?:==|!=|\+=|<=|>=|<|>)\s*(?:{IDENTIFIER}|[+-]?\d+)\b"
     r"|\b[A-Za-z]\w*_\w+\b"
     r"|\b(?:Python|pandas|CSV|DataFrame|input|print|int|float|bool|str|string|integer|boolean|type|True|False|None|"
-    r"dropna|fillna|isna|isnull|head|describe|subset|axis|inplace|index|dtype|not|or|and|XOR)\b|\^"
+    r"dropna|fillna|isna|isnull|head|describe|subset|axis|inplace|index|dtype|not|or|and|XOR|break|continue)\b|\^"
 )
 DECLARED = re.compile(rf"\b(?:variabel\s+({IDENTIFIER})|({IDENTIFIER})\s*=(?!=))")
 
@@ -20,13 +21,14 @@ def code_matches(text: str):
 
 
 def technical_terms(text: str) -> set[str]:
-    return {match[0].casefold().removesuffix("()") for match in code_matches(text)}
+    return {match[0].strip("`").casefold().removesuffix("()") for match in code_matches(text)}
 
 
 def highlight_code(text: str) -> str:
     chunks = []
     end = 0
     for match in code_matches(text):
-        chunks.extend((escape(text[end:match.start()]), f"<code>{escape(match[0])}</code>"))
+        code = match[0].strip("`")
+        chunks.extend((escape(text[end:match.start()]), f"<code>{escape(code)}</code>"))
         end = match.end()
     return "".join(chunks) + escape(text[end:])

@@ -18,11 +18,12 @@ from src.transcript_quality import is_readable_summary
 
 
 ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
-DEFAULT_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
 MAX_WINDOW_CHARS = 12_000
 MAX_WINDOWS = 8
 MAX_POINTS = 7
+GEMINI_QUOTA_NOTICE = "Kuota token atau batas penggunaan API Gemini tercapai. Panduan dilanjutkan dengan pemrosesan lokal."
 LEADING_FILLERS = re.compile(r"^(?:(?:eh|nah|oke|gitu|gini|nih|deh|dong),\s+)+", re.IGNORECASE)
 SPOKEN_FORMS = {"ngambil": "mengambil", "masukin": "memasukkan", "jalanin": "menjalankan", "enggak": "tidak", "nggak": "tidak", "gak": "tidak"}
 TOKENS = re.compile(
@@ -59,6 +60,10 @@ class GeminiError(RuntimeError):
     pass
 
 
+class GeminiQuotaError(GeminiError):
+    """A Gemini request was rejected because a quota, rate, or credit limit was reached."""
+
+
 @dataclass(frozen=True)
 class GeminiConfig:
     api_key: str = field(repr=False)
@@ -75,7 +80,7 @@ def gemini_config() -> GeminiConfig | None:
     model = (os.environ.get("GEMINI_MODEL", local.get("GEMINI_MODEL")) or DEFAULT_MODEL).strip()
     if enabled in {"false", "0", "off", "no"} or not key:
         return None
-    if not re.fullmatch(r"gemini-[a-z0-9.-]+", model) or not re.fullmatch(r"[A-Za-z0-9_-]+", key):
+    if not re.fullmatch(r"gemini-[a-z0-9.-]+", model) or not re.fullmatch(r"(?:AQ\.)?[A-Za-z0-9_-]+", key):
         raise GeminiError("Format konfigurasi Gemini tidak valid.")
     return GeminiConfig(key, model)
 
@@ -83,6 +88,30 @@ def gemini_config() -> GeminiConfig | None:
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+def request_gemini_json(config: GeminiConfig, payload: dict, timeout: float) -> tuple[dict, dict]:
+    request = Request(f"{ENDPOINT}/{config.model}:generateContent", data=json.dumps(payload).encode("utf-8"),
+                      headers={"content-type": "application/json", "x-goog-api-key": config.api_key}, method="POST")
+    try:
+        with build_opener(NoRedirect()).open(request, timeout=timeout) as response:
+            document = json.load(response)
+        candidate = document["candidates"][0]
+        if candidate.get("finishReason") != "STOP":
+            raise GeminiError("Gemini tidak menyelesaikan respons.")
+        text = "".join(part.get("text", "") for part in candidate["content"]["parts"] if not part.get("thought"))
+        result = json.loads(text)
+        if not isinstance(result, dict):
+            raise GeminiError("Gemini tidak mengembalikan objek JSON.")
+        return result, document.get("usageMetadata") or {}
+    except HTTPError as error:
+        status = error.code
+        error.close()
+        if status in {402, 429}:
+            raise GeminiQuotaError(f"Gemini API mengembalikan HTTP {status}.") from None
+        raise GeminiError(f"Gemini API mengembalikan HTTP {status}.") from None
+    except (URLError, OSError, KeyError, IndexError, AttributeError, ValueError, TypeError):
+        raise GeminiError("Gemini API tidak dapat dihubungi atau responsnya tidak dapat dibaca.") from None
 
 
 def request_excerpts(config: GeminiConfig, cues: list[tuple[int, Segment]], timeout: float) -> list:
@@ -93,25 +122,11 @@ def request_excerpts(config: GeminiConfig, cues: list[tuple[int, Segment]], time
         "generationConfig": {"temperature": 0, "maxOutputTokens": 3500,
                              "responseMimeType": "application/json", "responseJsonSchema": SCHEMA},
     }
-    request = Request(f"{ENDPOINT}/{config.model}:generateContent", data=json.dumps(payload).encode("utf-8"),
-                      headers={"content-type": "application/json", "x-goog-api-key": config.api_key}, method="POST")
-    try:
-        with build_opener(NoRedirect()).open(request, timeout=timeout) as response:
-            document = json.load(response)
-        candidate = document["candidates"][0]
-        if candidate.get("finishReason") != "STOP":
-            raise GeminiError("Gemini tidak menyelesaikan respons.")
-        text = "".join(part.get("text", "") for part in candidate["content"]["parts"] if not part.get("thought"))
-        excerpts = json.loads(text)["excerpts"]
-        if not isinstance(excerpts, list) or len(excerpts) > MAX_POINTS:
-            raise GeminiError("Format daftar Gemini tidak valid.")
-        return excerpts
-    except HTTPError as error:
-        status = error.code
-        error.close()
-        raise GeminiError(f"Gemini API mengembalikan HTTP {status}.") from None
-    except (URLError, OSError, KeyError, IndexError, AttributeError, ValueError, TypeError):
-        raise GeminiError("Gemini API tidak dapat dihubungi atau responsnya tidak dapat dibaca.") from None
+    result, _ = request_gemini_json(config, payload, timeout)
+    excerpts = result.get("excerpts")
+    if not isinstance(excerpts, list) or len(excerpts) > MAX_POINTS:
+        raise GeminiError("Format daftar Gemini tidak valid.")
+    return excerpts
 
 
 def transcript_windows(segments: list[Segment]) -> list[list[tuple[int, Segment]]]:

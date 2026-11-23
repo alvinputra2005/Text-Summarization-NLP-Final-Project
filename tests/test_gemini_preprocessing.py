@@ -33,6 +33,15 @@ def response_with(*excerpts):
 
 
 class GeminiPreprocessingTest(unittest.TestCase):
+    def test_accepts_ai_studio_authorization_key(self):
+        key = "AQ.example_test-key"
+        with patch.dict(os.environ, {"GEMINI_API_KEY": key}, clear=True), patch(
+            "src.gemini_preprocessing.dotenv_values", return_value={}
+        ):
+            config = gemini_config()
+        self.assertEqual(config, GeminiConfig(key))
+        self.assertNotIn(key, repr(config))
+
     def test_loads_local_env_and_can_be_disabled(self):
         with TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
             env = Path(directory) / ".env"
@@ -88,13 +97,15 @@ class GeminiPreprocessingTest(unittest.TestCase):
         progress = Mock()
         with patch("src.pipeline.gemini_config", return_value=CONFIG):
             guide = finish_guide(b"video", CUES, perf_counter(), 0, progress, overview=False)
-        self.assertEqual(guide.preprocessing, "Lokal")
+        self.assertEqual(guide.preprocessing, "Seleksi teknis lokal")
+        self.assertTrue(guide.gemini_quota_exhausted)
         self.assertIn("HTTP 429", guide.preprocessing_note)
         self.assertNotIn("secret detail", guide.preprocessing_note)
         summarize.assert_called_once_with(CUES, progress)
         opener.reset_mock()
         with patch("src.pipeline.gemini_config", return_value=None):
             guide = finish_guide(b"video", CUES, perf_counter(), 0, progress, overview=False)
-        self.assertEqual(guide.preprocessing, "Lokal")
+        self.assertEqual(guide.preprocessing, "Seleksi teknis lokal")
+        self.assertFalse(guide.gemini_quota_exhausted)
         self.assertFalse(guide.preprocessing_note)
         opener.assert_not_called()

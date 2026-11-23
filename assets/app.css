@@ -63,22 +63,11 @@
   overflow-wrap: anywhere;
 }
 
-.st-key-upload-panel,
 .st-key-youtube-panel {
   background: var(--surface);
+  max-width: 44rem;
 }
 
-.st-key-upload-panel [data-testid="stFileUploaderDropzone"] {
-  border: 1px dashed #9aaac1;
-  border-radius: 0.5rem;
-}
-
-.st-key-upload-notes {
-  border-left: 1px solid var(--line);
-  padding: 0.125rem 0 0 1.25rem;
-}
-
-.st-key-upload-notes h3,
 .st-key-video-pane h3,
 .st-key-summary-pane h3,
 .st-key-analysis-panel h3 {
@@ -86,14 +75,6 @@
   font-size: 1.125rem;
   font-weight: 650;
   letter-spacing: -0.012em;
-}
-
-.st-key-upload-notes ul {
-  padding-inline-start: 1.25rem;
-}
-
-.st-key-upload-notes li + li {
-  margin-top: 0.5rem;
 }
 
 .st-key-guide-heading [data-testid="stColumn"]:last-child [data-testid="stVerticalBlock"] {
@@ -131,7 +112,6 @@
   margin-top: 0.65rem;
 }
 
-.step-copy,
 .video-intro {
   margin: 0;
   font-size: 1rem;
@@ -144,7 +124,6 @@
   padding-bottom: 0.75rem;
 }
 
-.step-copy code,
 .video-intro code,
 .summary-points code {
   padding: 0.05em 0.26em;
@@ -216,6 +195,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+.st-key-youtube-dialog-actions [data-testid="stHorizontalBlock"] {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.st-key-youtube-dialog-actions [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
 .stApp button:focus-visible,
 .stApp summary:focus-visible {
   outline: 2px solid var(--accent);
@@ -227,23 +218,15 @@
     padding: 4.125rem 1rem 2rem;
   }
 
-  .st-key-upload-layout [data-testid="stHorizontalBlock"],
   .st-key-guide-layout [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .st-key-video-pane) {
     flex-direction: column;
     gap: 1.25rem;
   }
 
-  .st-key-upload-layout [data-testid="stColumn"],
   .st-key-guide-layout [data-testid="stHorizontalBlock"]:has(> [data-testid="stColumn"] .st-key-video-pane) > [data-testid="stColumn"] {
     flex: 1 1 100%;
     min-width: 0;
     width: 100%;
-  }
-
-  .st-key-upload-notes {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-    padding: 1rem 0 0;
   }
 
   .st-key-guide-heading [data-testid="stColumn"]:last-child [data-testid="stVerticalBlock"] {

@@ -220,11 +220,17 @@ def summarize_overview(evidence: tuple[str, ...], tokenizer, model) -> Overview:
     from src.summarization import details, generate_mbart
 
     source = overview_context(evidence)
-    inputs = tokenizer(source, return_tensors="pt", verbose=False)
-    if inputs["input_ids"].shape[1] > model.config.max_position_embeddings:
-        return Overview(format_overview(source), evidence, True)
-    output = generate_mbart(inputs, tokenizer, model, max_new_tokens=180)
-    generated = " ".join(tokenizer.decode(output[0], skip_special_tokens=True).split())
+    if tokenizer is None:
+        inputs, truncated = model.encode(source)
+        if truncated:
+            return Overview(format_overview(source), evidence, True)
+        generated = model.generate(inputs)
+    else:
+        inputs = tokenizer(source, return_tensors="pt", verbose=False)
+        if inputs["input_ids"].shape[1] > model.config.max_position_embeddings:
+            return Overview(format_overview(source), evidence, True)
+        output = generate_mbart(inputs, tokenizer, model, max_new_tokens=180)
+        generated = " ".join(tokenizer.decode(output[0], skip_special_tokens=True).split())
     if not generated or generated[-1] not in ".!?":
         generated = SENTENCE_END.split(generated)[:-1]
         generated = " ".join(generated)

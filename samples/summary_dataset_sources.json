@@ -1,0 +1,34 @@
+[
+  {
+    "dataset": "IndoSum",
+    "origin": "Kurniawan dan Louvan, fold 01",
+    "url": "https://github.com/kata-ai/indosum",
+    "license": "CC BY-SA 4.0 untuk arsip korpus",
+    "local": "data/processed/indosum",
+    "role": "Benchmark peringkasan artikel Indonesia"
+  },
+  {
+    "dataset": "Coding Video Mix · tutorial",
+    "origin": "Subtitle YouTube dan anotasi proyek",
+    "url": "samples/coding_video_segments.json",
+    "license": "Hak sumber mengikuti pemilik video",
+    "local": "data/processed/coding_video_mix",
+    "role": "Teks dan ringkasan tutorial Indonesia, split per video"
+  },
+  {
+    "dataset": "Coding Video Mix · pilot sintetis",
+    "origin": "Pasangan orisinal yang dibuat proyek",
+    "url": "scripts/prepare_coding_pilot.py",
+    "license": "Contoh orisinal proyek",
+    "local": "data/processed/coding_video_mix",
+    "role": "Contoh tambahan hanya pada train"
+  },
+  {
+    "dataset": "CrossTask",
+    "origin": "CrossTask Release",
+    "url": "https://github.com/DmZhukov/CrossTask#data",
+    "license": "Mengikuti ketentuan sumber",
+    "local": "data/processed/coding_video_mix",
+    "role": "Tersedia sebagai contoh berbahasa Inggris. Di luar pembanding tiga model Indonesia."
+  }
+]

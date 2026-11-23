@@ -1,0 +1,69 @@
+[
+  {
+    "id": "B6scLunzn0I",
+    "title": "Break pada perulangan Python",
+    "role": "Pengembangan",
+    "video_url": "https://www.youtube.com/watch?v=B6scLunzn0I",
+    "code_url": "https://raw.githubusercontent.com/kelasterbuka/Python3.x_Dasar_Programming/master/Episode%2027%20-%20Break/Main.py",
+    "code_details": ["angka += 1", "angka == 3", "int(input(", "angka == data_int"],
+    "facts": [
+      {
+        "start": 135,
+        "end": 220,
+        "summary": "Gunakan break ketika syarat terpenuhi agar eksekusi keluar dari perulangan.",
+        "terms": [["break"], ["keluar", "berhenti", "menghentikan", "selesai", "diselesaikan"]]
+      },
+      {
+        "start": 221,
+        "end": 337,
+        "summary": "Pada contoh kondisi pertama, perulangan berhenti ketika angka mencapai 3.",
+        "terms": [["3", "tiga"], ["keluar", "berhenti", "menghentikan", "selesai", "diselesaikan", "break"]]
+      },
+      {
+        "start": 365,
+        "end": 463,
+        "summary": "Pada contoh berikutnya, ambil batas dari masukan pengguna dan jalankan break ketika hitungan mencapai batas tersebut.",
+        "terms": [["input", "masukan"], ["break"], ["sama dengan", "sampai", "mencapai", "keluar", "berhenti", "selesai"]]
+      }
+    ]
+  },
+  {
+    "id": "D66WxqZnjXg",
+    "title": "Format string di Python",
+    "role": "Uji eksploratif",
+    "video_url": "https://www.youtube.com/watch?v=D66WxqZnjXg",
+    "code_url": "https://raw.githubusercontent.com/kelasterbuka/Python3.x_Dasar_Programming/master/Episode%2018%20-%20Format%20String/Main.py",
+    "facts": [
+      {
+        "start": 110,
+        "end": 205,
+        "summary": "Pada f-string, letakkan nama variabel di dalam kurung kurawal agar nilainya masuk ke dalam hasil teks.",
+        "terms": [["f string", "string", "format"], ["kurung kurawal"], ["nama", "variabel", "nilai", "data"]]
+      },
+      {
+        "start": 443,
+        "end": 521,
+        "summary": "Tambahkan format koma untuk menampilkan pemisah ribuan pada angka.",
+        "terms": [["ribuan", "jutaan"], ["koma"]]
+      },
+      {
+        "start": 527,
+        "end": 658,
+        "summary": "Format bilangan desimal dengan penentu presisi untuk menampilkan tiga angka setelah titik.",
+        "terms": [["desimal", "koma", "titik"], ["tiga", "3"], ["belakang", "angka", "digit"]]
+      },
+      {
+        "start": 859,
+        "end": 943,
+        "summary": "Gunakan format persen agar nilai pecahan ditampilkan sebagai persentase.",
+        "terms": [["persen", "persentase"], ["format", "pecahan", "0 045", "4 5"]]
+      },
+      {
+        "start": 955,
+        "end": 1025,
+        "summary": "Hitung harga total dengan mengalikan harga dan jumlah di dalam placeholder f-string.",
+        "terms": [["harga"], ["dikali", "kali", "mengalikan", "perkalian"], ["jumlah"]]
+      }
+    ]
+  }
+]

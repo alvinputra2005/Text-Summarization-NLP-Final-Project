@@ -1,0 +1,3 @@
+id,text,reference_summary
+pandas-demo,"Baca berkas CSV dengan pandas dan periksa kolom harga. Hapus baris dengan harga kosong memakai dropna(subset=['harga']).","Hapus baris dengan harga kosong menggunakan dropna(subset=['harga'])."
+python-demo,"Program memakai range(5) untuk mengulang lima kali. Nilai yang muncul dimulai dari 0 sampai 4. Batas akhir 5 tidak ikut dicetak.","Gunakan range(5) untuk mengulang dari 0 sampai 4."

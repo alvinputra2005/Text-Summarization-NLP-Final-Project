@@ -1,16 +1,14 @@
 # Panduan Pemrograman
 
-Aplikasi Streamlit lokal yang meringkas video tutorial pemrograman berbahasa Indonesia. Pilih **Unggah MP4** atau tempel alamat video publik di **Link YouTube**, lalu tekan **Buat Panduan**. Pengujian video berfokus pada Python.
+Aplikasi Streamlit lokal yang meringkas tutorial pemrograman berbahasa Indonesia dari YouTube. Tempel tautan video publik, lalu tekan **Buat Panduan**. Pengujian video berfokus pada Python.
 
-Pengantar dan poin utama muncul di samping video. **Analisis pemrosesan** menampilkan alur, keluaran, dan waktu proses. Di **Skor acuan**, isi ringkasan acuan untuk membandingkan ROUGE-1, ROUGE-2, ROUGE-3, dan ROUGE-L, atau transkrip acuan untuk menghitung WER dan CER. Isi ringkasan pembanding jika ingin memakai keluaran model lain. Di **Audit langkah**, putar segmen sumber, periksa istilah teknis, dan catat penilaian selama sesi. Bila narasi kosong atau materinya belum bisa dikenali, pemutar tetap tersedia bersama status pemeriksaan.
+Pengantar dan poin utama muncul di samping video. **Analisis pemrosesan** menampilkan alur, waktu proses, transkrip bertanda waktu, dan teks yang dipilih untuk mBART. Evaluasi penelitian ada di [notebook terpadu](notebooks/Pipeline_NLP_Video_Pemrograman.ipynb). Bila narasi kosong atau materinya belum bisa dikenali, pemutar tetap tersedia bersama status pemeriksaan.
 
 ## Pipeline
 
-1. Untuk MP4, FFprobe memeriksa video dan jalur audio. FFmpeg menyiapkan media untuk pemutar dan dekode audio.
-2. Untuk YouTube, aplikasi memeriksa subtitle Indonesia dan meminta keputusan sebelum mengambil audio jika subtitle belum ditemukan. Jika subtitle panjang sulit dibaca, aplikasi mencoba transkripsi ulang dan memilih hasil yang lebih terbaca. MP4 memakai Whisper langsung.
-3. Aplikasi memilih dan merapikan cuplikan narasi. Jika Gemini aktif, Gemini memilih bagian yang berisi inti tutorial dan aplikasi memeriksa hasilnya terhadap transkrip asli. Alur lokal mengelompokkan narasi berdasarkan jeda dan perubahan tindakan serta mengenali sejumlah pola demonstrasi Python.
-4. mBART-50 meringkas teks tiap langkah. Aplikasi memeriksa detail penting dan keterbacaan keluarannya. Bagian yang sulit diringkas tetap bisa diputar dan dilihat di transkrip. Waktu mulai dan selesai berasal dari segmen transkrip.
-5. Streamlit menampilkan panduan, transkrip bertanda waktu, dan durasi proses. Skor WER, CER, dan ROUGE memakai teks acuan yang diberikan pengguna.
+1. Aplikasi memeriksa subtitle Indonesia dan meminta keputusan sebelum menjalankan Whisper jika subtitle tidak ditemukan atau sulit dibaca.
+2. Aplikasi merapikan dan memilih cuplikan narasi dari transkrip. Jika tersedia, OCR membaca kode di layar dan Gemini mengaitkan cuplikan narasi dengan bukti visual yang diperiksa terhadap transkrip dan hasil OCR.
+3. mBART-50 meringkas teks tiap langkah. Streamlit menampilkan panduan, transkrip bertanda waktu, dan durasi proses.
 
 ## Jalankan di Windows PowerShell
 
@@ -27,7 +25,7 @@ $projectPython = '.\.venv\Scripts\python.exe'
 & $projectPython -m streamlit run app.py --server.address 127.0.0.1
 ```
 
-Jika Python 3.11 dipasang melalui `uv`, gunakan `uv venv --python 3.11 --seed .venv` untuk membuat lingkungan. Buka alamat lokal yang ditampilkan Streamlit. Untuk uji awal di CPU, pilih MP4 pendek. Pengunduhan pertama memerlukan koneksi internet dan ruang cache. Bobot PyTorch model dasar berukuran sekitar 2,44 GB. [Berkas checkpoint mBART](https://huggingface.co/facebook/mbart-large-50/tree/main)
+Jika Python 3.11 dipasang melalui `uv`, gunakan `uv venv --python 3.11 --seed .venv` untuk membuat lingkungan. Buka alamat lokal yang ditampilkan Streamlit. Untuk uji awal di CPU, pilih video YouTube pendek. Pengunduhan pertama memerlukan koneksi internet dan ruang cache. Bobot PyTorch model dasar berukuran sekitar 2,44 GB. [Berkas checkpoint mBART](https://huggingface.co/facebook/mbart-large-50/tree/main)
 
 Whisper memakai `faster-whisper` pada CPU INT8 secara bawaan. Untuk membandingkan dengan OpenAI Whisper, jalankan aplikasi atau skrip evaluasi setelah mengatur `$env:WHISPER_BACKEND = 'openai'`. Gunakan `Remove-Item Env:WHISPER_BACKEND` untuk kembali ke pengaturan bawaan.
 
@@ -67,7 +65,23 @@ if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 .\.venv\Scripts\python.exe -m scripts.check_gemini
 ```
 
-Setelah muncul `Gemini OK`, proses MP4 atau video YouTube kembali dan lihat nama model di **Analisis pemrosesan → Preprocessing**. Default `GEMINI_MODEL` adalah `gemini-3.1-flash-lite`. Saat Gemini aktif, potongan teks transkrip dikirim ke Google untuk memilih inti tutorial dan merapikan bahasa lisan. mBART-50 membuat ringkasan akhir dari cuplikan yang lolos pemeriksaan. Atur `GEMINI_ENABLED=false` untuk menjalankan semuanya secara lokal. Aplikasi juga beralih ke preprocessing lokal jika API gagal atau seluruh cuplikan gagal diverifikasi.
+Setelah muncul `Gemini OK`, proses video YouTube dan lihat jalur yang dipakai di **Analisis pemrosesan**. Default `GEMINI_MODEL` adalah `gemini-3.5-flash-lite`. Saat pembacaan layar tersedia, Gemini dapat menerima potongan transkrip dan crop editor. Jika tidak ada frame yang bisa dikirim, Gemini dapat membantu memilih cuplikan dari teks transkrip. mBART-50 membuat ringkasan akhir. Atur `GEMINI_ENABLED=false` untuk memproses media dan teks secara lokal.
+
+Jika Gemini mencapai batas kuota atau penggunaan, klik **Buat Panduan** tetap memproses video dengan OCR dan peringkasan lokal sesuai bukti yang tersedia. Pesan kuota tampil saat pemrosesan dan pada halaman hasil. Kesalahan konfigurasi atau koneksi dilaporkan di detail pemrosesan.
+
+### Pembacaan kode di layar
+
+Streamlit memakai FFmpeg untuk mengambil sampel frame sepanjang video. Tesseract membaca editor sebelum mBART merangkum. Bukti lokal dapat memperjelas kondisi `break`, cabang Python `if`/`elif`/`else`, serta panggilan fungsi yang disebut di transkrip jika pembacaannya konsisten pada dua frame. Untuk percabangan, pipeline memeriksa indentasi agar kondisi dan perintah di bawahnya berasal dari blok yang sama. Untuk YouTube, pengambilan video dilakukan setelah pemeriksaan subtitle dan persetujuan yang diperlukan.
+
+Aplikasi bisa menyambung ucapan yang masih berlanjut pada segmen berikutnya. Langkah yang didukung kode atau penjelasan teknis tetap bisa ditampilkan dari transkrip meskipun hasil mBART belum bisa dipakai. Jika Whisper mengenali topik pemrograman tetapi belum menemukan langkah yang dapat dipakai, aplikasi mencoba satu pemeriksaan audio tambahan.
+
+Panduan menampilkan maksimal 10 poin. Untuk tutorial dasar string Python, aplikasi menyusun poin langsung dari istilah yang jelas pada narasi atau literal yang terbaca sama pada dua frame. Pemeriksaan literal membedakan karakter escape seperti `\\n` dan `\\t` dari backslash yang ditulis ganda atau dipertahankan dalam raw string. Poin yang sudah tersusun dari bukti ini ditampilkan langsung. mBART tetap tersedia untuk bagian yang memerlukan peringkasan.
+
+Saat transkrip belum memberi langkah yang cukup jelas, aplikasi masih memeriksa layar secara lokal. Rangkaian percabangan Python beserta aksinya dapat menjadi sumber langkah jika terbaca konsisten pada dua frame dekat. Jika mBART tidak bisa dimuat, poin yang sudah didukung sumber tetap ditampilkan.
+
+OCR aktif otomatis jika Tesseract dan data bahasa `eng` tersedia. Pada Windows, aplikasi juga memeriksa lokasi instalasi standar. Atur `TESSERACT_EXE` jika binarinya berada di lokasi lain. Pada tutorial percabangan, OCR mencoba beberapa area untuk menemukan editor. Gunakan `VIDEO_OCR_ROI` untuk menetapkan satu area crop lewat empat koordinat relatif `x1 y1 x2 y2`, atau set `VIDEO_OCR_ENABLED=false` di lingkungan proses untuk melewati frame. [Panduan pemasangan Tesseract](https://tesseract-ocr.github.io/tessdoc/Installation.html)
+
+Perbandingan transkrip, OCR lokal, dan Gemini tersedia di [notebook terpadu](notebooks/Pipeline_NLP_Video_Pemrograman.ipynb) dengan checkpoint mBART yang sama.
 
 ## Pengujian
 
@@ -76,11 +90,13 @@ Setelah muncul `Gemini OK`, proses MP4 atau video YouTube kembali dan lihat nama
 & $projectPython -m unittest discover -s tests -v
 ```
 
-Skrip `check_mbart` memakai loader dan konfigurasi generasi dari aplikasi. `Tokenizer OK` dan `Model OK` mengonfirmasi pemuatan dan satu generasi di CPU, termasuk token bahasa Indonesia pada masukan dan keluaran. Untuk uji browser, proses MP4 pendek atau link YouTube, periksa ringkasan dan sumber transkrip, lalu pilih satu segmen dan tekan **Putar segmen**.
+Skrip `check_mbart` memakai loader dan konfigurasi generasi dari aplikasi. `Tokenizer OK` dan `Model OK` mengonfirmasi pemuatan dan satu generasi di CPU, termasuk token bahasa Indonesia pada masukan dan keluaran. Untuk uji browser, proses tautan YouTube, periksa ringkasan dan sumber transkrip, lalu pilih satu segmen dan tekan **Putar segmen**.
 
 Pada uji lokal, checkpoint dasar revisi `4ef55a20b36c6903b832e38f0604ab4bdf22c7d6` berhasil menjalankan generasi di CPU. Klip contoh pandas bernarasi sintetis menghasilkan tiga langkah di Chrome yang dapat diputar dari penanda `00:00`, `00:10`, dan `00:19`. Model dasar mengulang teks masukan pada contoh skrip uji. Perbandingan kualitas masih memerlukan data referensi dan checkpoint hasil fine-tuning.
 
 ## Pelatihan dan evaluasi
+
+Laporan eksperimen tersedia dalam [satu notebook terpadu](notebooks/Pipeline_NLP_Video_Pemrograman.ipynb). Lihat [panduan notebook](notebooks/README.md) untuk menjalankan ulang pelatihan mBART, Whisper, dan evaluasi video.
 
 Untuk menguji fine-tuning mBART di GPU lokal, gunakan interpreter ROCm yang sudah lolos tes GPU. Percobaan ini memakai checkpoint dasar dari cache Hugging Face dan membaca `train.csv` serta `validation.csv` dari `data/processed/indosum`.
 

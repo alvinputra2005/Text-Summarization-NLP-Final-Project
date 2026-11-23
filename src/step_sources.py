@@ -12,6 +12,8 @@ class StepSource:
     segment: Segment
     text: str
     required_clause: str = ""
+    visual_quote: str = ""
+    allow_source_excerpt: bool = False
 
 
 # A rule contributes a step only when both the action and its example occur in the transcript.
@@ -233,10 +235,16 @@ def prepare_step_sources(segments: list[Segment]) -> list[StepSource]:
 def prepare_intro(evidence: tuple[str, ...]) -> str:
     if not evidence:
         return ""
+    joined = " ".join(evidence)
+    if re.search(r"\bstring\b", joined, re.I):
+        if "tanda kutip" in joined and re.search(r"backslash|raw string|\\[nt]", joined):
+            return "Video ini membahas cara menulis string dengan tanda kutip dan menangani karakter khusus di Python."
+        if "tanda kutip" in joined:
+            return "Video ini membahas cara menulis string dengan tanda kutip di Python."
     operators = [name.upper() if name == "xor" else name for name, _, _, wording in BOOLEAN_EXPERIMENTS if wording in evidence]
     if operators and len(operators) == len(evidence):
         return f"Video ini membahas operasi logika Python dengan menguji {join_topics(operators)} pada nilai Boolean."
-    tags = topic_tags(" ".join(evidence))
+    tags = topic_tags(joined)
     if {"input", "string", "integer", "float", "boolean"} <= tags:
         return "Video ini membahas cara membaca masukan pengguna dengan input() dan mengubah hasilnya dari string menjadi integer, float, atau boolean."
     sentences = tuple(sentence for item in evidence for sentence in SENTENCE_END.split(item))

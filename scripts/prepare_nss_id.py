@@ -1,4 +1,4 @@
-"""Prepare a small held-out human-speech sample from the NSS-ID Imperative shard."""
+"""Prepare a human-speech sample from an official NSS-ID Imperative split."""
 
 import argparse
 import csv
@@ -13,7 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw-dir", type=Path, default=Path("data/raw/nss-id"))
     parser.add_argument("--output-dir", type=Path, default=Path("data/processed/nss-id"))
-    parser.add_argument("--split", choices=("val", "test"), default="test")
+    parser.add_argument("--split", choices=("train", "val", "test"), default="test")
     parser.add_argument("--per-speaker", type=int, default=8)
     args = parser.parse_args()
     if args.per_speaker < 1:

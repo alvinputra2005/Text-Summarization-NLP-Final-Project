@@ -8,7 +8,7 @@ SENTENCES = re.compile(r"(?<=[.!?])\s+")
 DISFLUENCY = re.compile(r"\b(?:oke|nah|eh|anu|gini|gitu|ntar|kayak|sih|bentar|nih|ya)\b", re.IGNORECASE)
 STRETCHED_WORD = re.compile(r"\b[^\W\d_]*(\w)\1{3,}[^\W\d_]*\b", re.IGNORECASE)
 FRAGMENT_END = re.compile(r"\b(?:dan|atau|yang|dengan|akan|jika|kalau|menjadi|adalah|ke|dari)\s*[.!?]*$", re.IGNORECASE)
-PYTHON = re.compile(r"\b(?:py(?:thon|ton)|pandas|data\s*frame|jupyter|colab)\b|\b\w+\.py\b", re.IGNORECASE)
+PYTHON = re.compile(r"\b(?:python|pyton|piton|pandas|data\s*frame|jupyter|colab)\b|\b\w+\.py\b", re.IGNORECASE)
 OTHER_PROGRAMMING_LANGUAGE = re.compile(
     r"\b(?:JavaScript|TypeScript|Java|PHP|Ruby|Golang|Rust|Swift|Kotlin|SQL)\b"
     r"|(?<!\w)C(?:\+\+|#)(?!\w)|\b(?:bahasa|kode)\s+(?:C|Go)\b", re.IGNORECASE,
@@ -20,9 +20,11 @@ PROGRAMMING = re.compile(
 PYTHON_SYNTAX = re.compile(
     r"\b(?:input|print|range|type|int|float|bool|read_csv|to_csv|dropna|fillna|isnull)\s*\("
     r"|\b(?:read_csv|to_csv|dropna|fillna|for loop|while loop|operasi logika boolean)\b"
+    r"|\b(?:f[- ]?string|format string|list comprehension|try\s*[/–-]?\s*except)\b"
     r"|\b(?:elif|if)\b.{0,80}\belse\b|\brange\s+\d+\b",
     re.IGNORECASE,
 )
+LOOP_SYNTAX = re.compile(r"\bwhile\b.{0,160}\b(?:break|continue)\b|\b(?:break|continue)\b.{0,160}\bwhile\b", re.I)
 
 
 def is_readable_statement(text: str) -> bool:
@@ -52,7 +54,7 @@ def coding_transcript_status(segments: list[Segment]) -> str:
     transcript = " ".join(segment.text for segment in segments).strip()
     if not transcript:
         return "no_speech"
-    if PYTHON_SYNTAX.search(transcript) or ACTION.search(transcript) or (
+    if PYTHON_SYNTAX.search(transcript) or LOOP_SYNTAX.search(transcript) or ACTION.search(transcript) or (
         (PYTHON.search(transcript) or OTHER_PROGRAMMING_LANGUAGE.search(transcript)) and PROGRAMMING.search(transcript)
     ):
         return "ready"

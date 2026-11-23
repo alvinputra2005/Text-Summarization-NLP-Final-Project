@@ -76,7 +76,7 @@ class YouTubeTests(unittest.TestCase):
         segment = Segment(10, 13, "Gunakan dropna.")
         steps = [Step(segment.start, segment.end, segment.text, "Gunakan dropna.", False)]
         progress = Mock()
-        with patch("src.pipeline.download_youtube_audio") as download, patch(
+        with patch.dict("os.environ", {"VIDEO_OCR_ENABLED": "false"}), patch("src.pipeline.download_youtube_audio") as download, patch(
             "src.pipeline.transcribe", return_value=[segment],
         ) as transcribe, patch("src.pipeline.gemini_config", return_value=None), patch(
             "src.pipeline.summarize_segments", return_value=(steps, "example-mbart", None),
