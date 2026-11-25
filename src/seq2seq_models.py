@@ -22,6 +22,7 @@ MODELS = {
     "mbart": ModelSpec("facebook/mbart-large-50", "4ef55a20b36c6903b832e38f0604ab4bdf22c7d6", "MIT", "sentencepiece.bpe.model"),
     "mt5": ModelSpec("google/mt5-small", "73fb5dbe4756edadc8fbe8c769b0a109493acf7a", "Apache-2.0", "spiece.model"),
     "indobart": ModelSpec("indobenchmark/indobart", "73bead20e4a67f578f6f3b3f7038040304dc7065", "MIT", "sentencepiece.bpe.model"),
+    "indobart-v2": ModelSpec("indobenchmark/indobart-v2", "7192ee75ba70ca247c7abfb8e7268588145c0bde", "MIT", "sentencepiece.bpe.model"),
 }
 MODEL_ROOT = Path(__file__).resolve().parents[1] / "data/raw/models"
 
@@ -46,7 +47,7 @@ def model_files(key, *, download=False):
 def load_tokenizer(key, path):
     if key == "mbart":
         return MBart50TokenizerFast.from_pretrained(path, src_lang=INDONESIAN, tgt_lang=INDONESIAN)
-    if key == "indobart":
+    if key in {"indobart", "indobart-v2"}:
         from indobenchmark import IndoNLGTokenizer
 
         return IndoNLGTokenizer.from_pretrained(path)
@@ -62,6 +63,15 @@ class Seq2SeqRunner:
         self.source_tokens = source_tokens
         self.target_tokens = target_tokens
         self.checkpoint = "base"
+        self.summary_language = INDONESIAN
+
+    def set_summary_language(self, language):
+        if language != INDONESIAN and self.key in {"indobart", "indobart-v2"}:
+            raise ValueError(f"{self.key} tidak memiliki token bahasa {language}.")
+        self.summary_language = language
+        if self.key == "mbart":
+            self.tokenizer.src_lang = language
+            self.tokenizer.tgt_lang = language
 
     @property
     def identity(self):
@@ -69,7 +79,7 @@ class Seq2SeqRunner:
 
     def encode(self, text, reference=None):
         tokenizer = self.tokenizer
-        if self.key == "indobart":
+        if self.key in {"indobart", "indobart-v2"}:
             values = tokenizer.prepare_input_for_generation(text)["input_ids"]
             truncated = len(values) > self.source_tokens
             values = values[:self.source_tokens - 2] + values[-2:] if truncated else values
@@ -82,7 +92,10 @@ class Seq2SeqRunner:
                 batch["labels"] = torch.tensor([[tokenizer.bos_token_id, *tokens, tokenizer.eos_token_id]])
             return batch, truncated
 
-        source = f"ringkas: {text}" if self.key == "mt5" else text
+        source = text
+        if self.key == "mt5":
+            prefix = "ringkas" if self.summary_language == INDONESIAN else "summarize"
+            source = f"{prefix}: {text}"
         uncut = tokenizer(source, return_tensors="pt", verbose=False)
         truncated = uncut["input_ids"].shape[-1] > self.source_tokens
         batch = tokenizer(source, return_tensors="pt", max_length=self.source_tokens, truncation=True) if truncated else uncut
@@ -99,9 +112,9 @@ class Seq2SeqRunner:
         if self.key == "mbart":
             settings = {
                 "decoder_start_token_id": self.tokenizer.eos_token_id,
-                "forced_bos_token_id": self.tokenizer.lang_code_to_id[INDONESIAN],
+                "forced_bos_token_id": self.tokenizer.lang_code_to_id[self.summary_language],
             }
-        elif self.key == "indobart":
+        elif self.key in {"indobart", "indobart-v2"}:
             settings = {
                 "decoder_start_token_id": self.tokenizer.indonesian_token_id,
                 "forced_bos_token_id": self.tokenizer.bos_token_id,
@@ -151,5 +164,12 @@ def load_deployment(path: Path, *, device="cpu"):
     if config["revision"] != MODELS[key].revision:
         raise ValueError("Revisi checkpoint deployment berbeda dari revisi eksperimen.")
     adapter = path.parent / config["adapter"] if config["adapter"] else None
-    return load_runner(key, device=device, source_tokens=config["source_tokens"],
-                       target_tokens=config["target_tokens"], adapter=adapter)
+    partial = config.get("partial_weights")
+    runner = load_runner(key, device=device, source_tokens=config["source_tokens"],
+                         target_tokens=config["target_tokens"], adapter=adapter,
+                         **({"dtype": torch.bfloat16} if partial else {}))
+    if partial:
+        from scripts.notebook_training import load_mbart_weights
+
+        load_mbart_weights(runner, path.parent / partial)
+    return runner

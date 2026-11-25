@@ -7,6 +7,7 @@ from scripts.notebook_multimodal import (
 )
 from src.gemini_preprocessing import GeminiConfig
 from src.segmentation import Segment
+from src.transcript_cleaning import clean_utterance
 
 
 def frame(second, action, condition="if angka == 3:"):
@@ -20,6 +21,39 @@ def frame(second, action, condition="if angka == 3:"):
 
 
 class MultimodalEvidenceTest(TestCase):
+    def test_removes_fillers_only_where_they_are_clearly_discourse_markers(self):
+        cases = (
+            ("Nah kita buka file CSV.", "kita buka file CSV.", ["Nah"]),
+            ("Oke, sekarang jalankan print().", "sekarang jalankan print().", ["Oke"]),
+            ("Lalu, apa ya, kita jalankan lagi.", "Lalu, kita jalankan lagi.", ["apa ya"]),
+            ("Ini kondisi pertama, oke ini contoh berikutnya.", "Ini kondisi pertama, ini contoh berikutnya.", ["oke"]),
+            ("Kondisinya siap, oke, nah kalau kosong, simpan.", "Kondisinya siap, kalau kosong, simpan.", ["oke", "nah"]),
+            ("Apa yang terjadi kalau input kosong?", "Apa yang terjadi kalau input kosong?", []),
+            ("Apa ya?", "Apa ya?", []),
+            ("Ya.", "Ya.", []),
+            ("Oke?", "Oke?", []),
+            ("Statusnya oke.", "Statusnya oke.", []),
+            ("Beri status, oke, kemudian simpan.", "Beri status, oke, kemudian simpan.", []),
+            ("Pakai 4, eh, maksudnya 5.", "Pakai 4, eh, maksudnya 5.", []),
+            ('Baca print("jadi, apa ya, kita ulang") dan `oke = False`.',
+             'Baca print("jadi, apa ya, kita ulang") dan `oke = False`.', []),
+            ("Nah, hmm.", "", ["Nah", "hmm"]),
+        )
+        for spoken, expected, fillers in cases:
+            with self.subTest(spoken=spoken):
+                self.assertEqual(clean_utterance(spoken), (expected, fillers))
+                self.assertEqual(clean_utterance(expected), (expected, []))
+
+    def test_cleaning_audit_retains_timestamps_and_marks_overlapping_duplicates(self):
+        segments = [Segment(1, 4, "Nah kita cek input."), Segment(3, 5, "kita cek input."),
+                    Segment(5, 6, "Eh."), Segment(6, 8, "Oke?")]
+        rows = clean_cues(segments, 0, 9)
+        self.assertEqual([row["status"] for row in rows],
+                         ["dirapikan", "duplikat tumpang tindih", "pengisi mandiri", "dipertahankan"])
+        self.assertEqual([(row["start"], row["end"], row["original"]) for row in rows],
+                         [(cue.start, cue.end, cue.transcript) for cue in segments])
+        self.assertEqual(rows[0]["fillers_removed"], ["Nah"])
+
     def test_cleaning_keeps_negation_identifiers_and_original(self):
         source = " Nah, nggak jalanin saat gak = 3 dan parameter nggak dipakai. "
         rows = clean_cues([Segment(1, 4, source)], 0, 7)

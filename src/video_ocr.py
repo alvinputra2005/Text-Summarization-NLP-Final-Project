@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from PIL import Image, ImageOps
 
-from src.gemini_preprocessing import LEADING_FILLERS, SPOKEN_FORMS, TOKENS
+from src.transcript_cleaning import clean_utterance
 from src.youtube import youtube_watch_url
 
 
@@ -104,25 +104,15 @@ def clean_cues(cues, start, end):
     for cue in sorted(cues, key=lambda item: item.start):
         if not (cue.start < end and cue.end > start) or not cue.text:
             continue
-        content = LEADING_FILLERS.sub("", cue.text)
-
-        def normalize_spoken(match):
-            preceding = content[:match.start()]
-            following = content[match.end():]
-            if re.search(r"\b(?:variabel|kolom|fungsi|parameter)\s+$", preceding, re.I) or re.match(
-                r"\s*(?:[=<>]|!=|[(:]|\+=|-=)", following,
-            ):
-                return match[0]
-            return SPOKEN_FORMS.get(match[0].casefold(), match[0])
-
-        text = TOKENS.sub(normalize_spoken, content)
-        if re.fullmatch(r"(?:oke|nah|eh|ya|hmm)[.!?]*", text, re.I):
-            text, status = "", "pengisi mandiri"
+        text, fillers = clean_utterance(cue.transcript)
+        if not text:
+            status = "pengisi mandiri"
         elif previous and previous["cleaned"] == text and previous["end"] >= cue.start:
             text, status = "", "duplikat tumpang tindih"
         else:
-            status = "dirapikan" if text != cue.transcript else "dipertahankan"
-        row = {"start": cue.start, "end": cue.end, "original": cue.transcript, "cleaned": text, "status": status}
+            status = "dirapikan" if text != cue.transcript.strip() else "dipertahankan"
+        row = {"start": cue.start, "end": cue.end, "original": cue.transcript, "cleaned": text,
+               "status": status, "fillers_removed": fillers}
         trace.append(row)
         if text:
             previous = row

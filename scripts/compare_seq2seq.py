@@ -19,26 +19,37 @@ from src.seq2seq_models import MODELS, load_runner
 
 SEED = 42
 DATASETS = ("indosum", "coding_video_mix")
+LEGACY_MODELS = ("mbart", "mt5", "indobart")
 METRICS = ("rouge1", "rouge2", "rougeL")
 SCORER = rouge_scorer.RougeScorer(METRICS, use_stemmer=False)
 
 
-def experiment_rows(dataset, profile, data_root=Path("data/processed")):
+def experiment_rows(dataset, profile, data_root=Path("data/processed"), *, limits=None):
     coding = dataset == "coding_video_mix"
-    caps = (12, 6, 9) if profile == "smoke" else ((46, 6, 9) if coding else (100, 20, 30))
+    vault = dataset == "multilingual_code"
+    caps = limits if limits is not None else (
+        (2, 2, 9) if vault and profile == "smoke" else
+        (50, 20, 20) if vault else
+        (12, 6, 9) if profile == "smoke" else
+        (46, 6, 9) if coding else (100, 20, 30)
+    )
     result = {}
     groups = set()
     for split, limit in zip(("train", "validation", "test"), caps, strict=True):
+        if limit < 1:
+            raise ValueError(f"Jumlah contoh {dataset}/{split} minimal satu.")
         with (data_root / dataset / f"{split}.csv").open(encoding="utf-8", newline="") as file:
             rows = [
                 row for row in csv.DictReader(file)
                 if row["text"].strip() and row["summary"].strip()
                 and (not coding or (row["source_lang"] == "id_ID" and row["target_lang"] == "id_ID"))
+                and (not vault or (row["source"] == "the_vault" and row["repo"] and row["hexsha"]
+                                   and row["licenses"] and row["target_lang"] == "en_XX"))
             ]
         identities = {row["id"] for row in rows}
         if len(identities) != len(rows) or len(rows) < limit:
             raise ValueError(f"ID ganda atau jumlah contoh kurang pada {dataset}/{split}.")
-        group = {row.get("video_id") or row["id"] for row in rows}
+        group = {row.get("repo") or row.get("video_id") or row["id"] for row in rows}
         if groups & group:
             raise ValueError(f"Grup bocor antarsplit pada {dataset}/{split}.")
         groups |= group
@@ -53,12 +64,13 @@ def score_key(metrics, dataset):
 def read_comparison(output):
     reports = [
         json.loads((output / dataset / key / "report.json").read_text(encoding="utf-8"))
-        for dataset in DATASETS for key in MODELS
+        for dataset in DATASETS for key in LEGACY_MODELS
     ]
     for dataset in DATASETS:
-        hashes = {item["data_hash"] for item in reports if item["dataset"] == dataset}
-        if len(hashes) != 1:
-            raise ValueError(f"Model pada {dataset} memakai data yang berbeda.")
+        rows = [item for item in reports if item["dataset"] == dataset]
+        settings = {(item["data_hash"], item["source_tokens"], item["target_tokens"], item["profile"]) for item in rows}
+        if len(settings) != 1 or {item["model"] for item in rows} != set(LEGACY_MODELS):
+            raise ValueError(f"Laporan {dataset} belum membandingkan ketiga model dengan pengaturan yang sama.")
     return reports
 
 
@@ -116,6 +128,7 @@ def evaluate(runner, encoded):
         details = annotated_detail_recall([row], [{"prediction": text}])
         predictions.append({
             "id": row["id"], "video_id": row.get("video_id", ""), "topic": row.get("topic", ""),
+            "language": row.get("language", ""), "repo": row.get("repo", ""),
             "reference": row["summary"], "prediction": text, "latency_ms": elapsed,
             "truncated": truncated, **scores, "details": details,
         })

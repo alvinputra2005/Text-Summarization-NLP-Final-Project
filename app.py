@@ -9,11 +9,13 @@ import streamlit as st
 from src.code_text import highlight_code
 from src.gemini_preprocessing import GEMINI_QUOTA_NOTICE
 from src.media import MediaError
-from src.pipeline import Guide, Progress, YouTubeInspection, build_youtube_guide, inspect_youtube
+from src.pipeline import Guide, Progress, YouTubeInspection, build_guide, build_youtube_guide, inspect_youtube
 
 
 log = logging.getLogger(__name__)
 STYLES = Path(__file__).with_name("assets") / "app.css"
+DEMO_VIDEO = STYLES.with_name("demo-pandas-sintetis.mp4")
+DEMO_NAME = "Pandas · demo sintetis"
 UNREADABLE_STEP = "Ucapan di bagian ini belum cukup jelas untuk diringkas."
 UNAVAILABLE_SUMMARY = {
     "no_speech": "Narasi tidak terdeteksi. Video tetap bisa diputar untuk memeriksa audionya.",
@@ -77,6 +79,12 @@ def youtube_view() -> None:
     with st.container(key="youtube-panel", border=True):
         show_youtube_input()
 
+    if DEMO_VIDEO.is_file():
+        st.subheader("Demo MP4")
+        st.caption("Tutorial pandas dengan narasi sintetis untuk demonstrasi.")
+        if st.button("Jalankan demo pandas", key="run-synthetic-demo"):
+            process_guide(DEMO_NAME, lambda progress: build_guide(DEMO_VIDEO.read_bytes(), progress))
+
 
 def cancel_youtube_check() -> None:
     st.session_state.pop("pending-youtube", None)
@@ -139,11 +147,15 @@ def show_analysis(guide: Guide) -> None:
     preprocessing = getattr(guide, "preprocessing", "Tidak tercatat")
     visual = getattr(guide, "visual", None)
     gemini = getattr(visual, "gemini_model", "")
+    context_changes = getattr(visual, "gemini_context_changes", 0)
+    gemini_details = f"{gemini} · {visual.gemini_evidence} bukti terverifikasi" if gemini else ""
+    if context_changes:
+        gemini_details += f" · {context_changes} koreksi transkrip"
     outputs = (
         ("Transkrip", f"{len(guide.transcript)} segmen · {len(transcript.split())} kata"),
         ("Praproses", f"{len(guide.steps)} bagian dipilih"),
-        ("OCR lokal", f"{visual.frames} frame diperiksa") if visual and visual.frames else None,
-        ("Gemini", f"{gemini} · {visual.gemini_evidence} bukti terverifikasi") if gemini else None,
+        ("OCR lokal", f"{visual.frames} frame diperiksa · {visual.steps} langkah didukung") if visual and visual.frames else None,
+        ("Gemini", gemini_details) if gemini else None,
         ("Peringkasan", f"{len(guide.summary_points)} poin · {preprocessing}"),
     )
     with st.container(key="analysis-panel"):
@@ -168,6 +180,12 @@ def show_pipeline_details(guide: Guide, source: str) -> None:
     visual = getattr(guide, "visual", None)
     if visual and visual.note:
         st.caption(visual.note)
+    gemini_examples = getattr(visual, "gemini_code_examples", ())
+    if gemini_examples:
+        with st.expander("Bukti kode Gemini"):
+            for code, quote in gemini_examples:
+                st.code(code, language="python")
+                st.html(f"<details><summary>Baca kutipan transkrip</summary><p>{escape(quote)}</p></details>")
     if guide.timings is not None:
         st.markdown("**Waktu per tahap**")
         stages = ["Media", "Transkrip", "Preprocessing dan ringkasan"]
@@ -250,7 +268,8 @@ def guide_view(guide: Guide) -> None:
             st.subheader("Video")
             with st.container(key=f"player-{st.session_state.seek_revision % 2}"):
                 st.video(guide.video, start_time=int(start), autoplay=selected is not None)
-            st.link_button("Buka di YouTube", f"{guide.video}&t={int(start)}s")
+            if isinstance(guide.video, str):
+                st.link_button("Buka di YouTube", f"{guide.video}&t={int(start)}s")
         with summary, st.container(key="summary-pane"):
             if guide.overview and guide.overview.text:
                 st.subheader("Tentang video")
@@ -272,9 +291,7 @@ st.html(
     '<span>Panduan Pemrograman</span></div>'
 )
 active_guide = st.session_state.get("guide")
-if active_guide is not None and isinstance(active_guide.video, str):
+if active_guide is not None:
     guide_view(active_guide)
 else:
-    if active_guide is not None:
-        reset_guide()
     youtube_view()

@@ -1,10 +1,35 @@
 # Notebook proyek NLP
 
+## Pemrograman V2
+
+Buka [notebook V2](Pipeline_NLP_Video_Pemrograman_V2.ipynb) di Colab dengan runtime GPU, lalu unggah `paket-pemrograman-v2.zip` saat sel 01 memintanya. Notebook melatih Whisper pada klip NSS-ID dan LUMINA. Model peringkas diuji pada IndoSum dan The Vault Function. Acuan The Vault berupa docstring Inggris. Data, prediksi per contoh, dan riwayat validasi dilaporkan per benchmark.
+
+- **NSS-ID Imperative** memakai klip penutur manusia dari split resmi. Paket mengumpulkan subset proyek dengan nama klip lokal. Atribusi Ratna Atika, Suci Dwijayanti, dan Bhakti Yudho Suprapto. [Sumber NSS-ID](https://huggingface.co/datasets/Atika88/Indonesian-ASR-11-Class-Dataset)
+- **LUMINA v4** memakai klip Setyaningsih, Chen, Kristian, Handayani, dan Irianto. Paket memasangkan WAV resmi ke video dan membagi klip per penutur. [Sumber LUMINA](https://data.mendeley.com/datasets/8fw93k4rny/4)
+- **IndoSum** memakai fold 01 karya Kurniawan dan Louvan. [Sumber IndoSum](https://github.com/kata-ai/indosum)
+- **The Vault Function** memakai subset proyek dari revisi `505c679056e49a2a269b64777ee7c496d22e1440` dengan grup repositori yang terpisah antarsplit. CSV menyimpan jalur repositori, commit, dan lisensi asal. [Sumber The Vault](https://huggingface.co/datasets/Fsoft-AIC/the-vault-function)
+
+Jalankan `streamlit run app.py` lalu pilih **Jalankan demo pandas** untuk memproses MP4 sintetis lokal. Demo memperlihatkan transkripsi, OCR, bukti Gemini jika tersedia, dan ringkasan. Skor penelitian berasal dari notebook V2.
+
+## Notebook sebelumnya
+
 **File utama untuk tugas** adalah [Pipeline_NLP_Video_Pemrograman.ipynb](Pipeline_NLP_Video_Pemrograman.ipynb). Notebook ini menghubungkan eksperimen Whisper, perbandingan tiga peringkas, dan evaluasi daftar langkah dari video utuh. File individual di bawah menyimpan rincian eksperimen sebelumnya.
 
-Notebook utama terdiri dari 18 tahap, mulai dari eksplorasi data hingga transkrip lengkap dan daftar instruksi. Eksperimen mBART membandingkan bobot dasar, adaptasi langsung pada tutorial, dan adaptasi bertahap IndoSum → tutorial. Tabel mBART, mT5, dan IndoBART generasi pertama memuat hasil pembanding dasar dari arsip. [Registri sumber](../samples/summary_dataset_sources.json)
+Di Colab, buka notebook lalu jalankan sel 01. Pilih `proyek-nlp-colab-v3.zip` saat pemilih file muncul. Paket berisi kode, CSV, dan klip yang dirujuk manifest Whisper. Pilih runtime GPU dan jalankan sel secara berurutan. Pelatihan aktif secara bawaan di Colab. Pengaturan Whisper ada di bagian 06, pengaturan peringkas di bagian 13. Isi `VIDEO_MP4` di bagian 07 untuk video baru dan `ACUAN_VIDEO_JSON` di bagian 14 jika ada acuan manual. Untuk Gemini, simpan `GEMINI_API_KEY` di Secrets Colab dan aktifkan `PAKAI_GEMINI` di bagian 10.
 
-Whisper memakai AdamW dengan learning rate awal `1e-5`. mBART memakai AdamW dengan learning rate tetap `2e-5` dan memperbarui langsung dua matriks cross-attention. Mode `smoke` memakai dua contoh per split tiap dataset dan satu epoch per tahap. Mode `pilot` memakai sampai lima epoch per tahap dengan early stopping dua epoch. Notebook mencatat jumlah contoh dan checkpoint aktual.
+Notebook utama terdiri dari 18 tahap. Bagian 13 dan 16 membandingkan mBART Large, mT5 Small, serta IndoBART v2 pada IndoSum dan Coding Video Mix. mBART dan IndoBART v2 memperbarui langsung proyeksi Q dan V pada cross-attention decoder terakhir. mT5 memakai LoRA pada proyeksi Q/V serta kepala keluaran dengan data ringkasan berlabel. Mode `smoke` memakai dua contoh latih, dua validasi, serta sembilan uji per dataset. Dalam mode replay, setel `NLP_SEQ2SEQ_REPORT_DIR` ke folder laporan jika ingin membuka hasil tertentu. [Registri sumber](../samples/summary_dataset_sources.json)
+
+Whisper memakai AdamW dengan learning rate awal `1e-5`. mBART dan IndoBART v2 memakai `2e-5`, sedangkan LoRA mT5 memakai `3e-4`. Semua latihan memakai batch fisik satu dan akumulasi gradien yang bisa diatur. Bagian 06 dan 13 mengatur enam epoch dan early stopping nonaktif untuk Colab. CLI `pilot` memakai batas lima epoch dan patience dua jika opsi tambahan dikosongkan. Peringkas memilih checkpoint berdasarkan ROUGE-L validasi, dengan recall detail kode sebagai pemecah seri pada Coding Video Mix.
+
+Bagian 13 menyiapkan `coding_video_mix/mbart/deployment.json` di folder hasil jika ROUGE-L validasi mBART naik dan recall detail kode minimal bertahan. Untuk mencoba kandidat di Streamlit, salin file JSON bersama `selected.pt` dari folder yang sama, tinjau hasil pada video utuh, lalu isi `SUMMARY_DEPLOYMENT` dengan path ke JSON. Streamlit memakai mBART bawaan saat kandidat gagal dimuat.
+
+Untuk mengulang perbandingan tiga model, jalankan setiap perintah ke direktori keluaran yang sama. Skrip menyimpan satu laporan dan bobot terpilih per model pada tiap dataset. Gunakan `--profile pilot` untuk subset lebih besar.
+
+```powershell
+foreach ($model in "mbart", "mt5", "indobart-v2") {
+    .\.venv\Scripts\python.exe -m scripts.compare_partial_seq2seq --model $model --output outputs/notebooks/seq2seq-partial-run --download
+}
+```
 
 Pasang dependensi notebook pada `.venv` serta interpreter `.venv-rocm` yang akan melatih model jika memakai GPU. Agar kode GPU yang sudah terpasang tetap dipakai, jalankan instalasi tanpa membuat ulang lingkungan PyTorch.
 
@@ -35,6 +60,8 @@ Untuk memuat hasil pelatihan dari eksekusi terdahulu, atur `NLP_NOTEBOOK_WHISPER
 ## Ringkasan video utuh dan evaluasi multimodal
 
 Bagian 07–10 menelusuri transkripsi, cleaning, OCR, dan Gemini. Bagian 14 serta 17–18 menampilkan inferensi, evaluasi video, dan keluaran akhir. Dua video publik tercatat di [manifest video](../samples/notebook_video_holdout.json). Empat kasus terkontrol tercatat di [manifest regresi preprocessing](../samples/preprocessing_regression.json). Atur `NLP_PREPROCESSING_EVAL=1` untuk mengulang regresi pada bagian 17. Video publik ikut diuji jika cache transkrip tersedia.
+
+Bagian 08 menampilkan jumlah segmen per tindakan, kata pengisi yang dibuang, serta contoh sebelum dan sesudah dengan teks yang bisa dibaca utuh. Bagian 10 mencatat usulan Gemini beserta perubahan yang lolos verifikasi. Pada uji video, satu panggilan dialokasikan ke cleaning kontekstual ketika `NLP_GEMINI_MAX_REQUESTS` lebih dari satu. Pertanyaan, konfirmasi, koreksi, dan kode tetap tersedia bersama transkrip asli.
 
 Bagian akhir memuat transkrip asli dan bersih, lalu tiga jalur ringkasan. A memakai transkrip, B menambah OCR lokal, dan C menambah bukti Gemini. C memiliki keluaran dan skor jika bukti dari API lolos pemeriksaan. Ketiga jalur menggunakan model dan konfigurasi decoding yang sama dalam satu eksperimen.
 

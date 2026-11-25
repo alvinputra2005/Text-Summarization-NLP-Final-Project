@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 import os
 from pathlib import Path
@@ -14,6 +14,7 @@ from src.media import MediaError, prepare_video
 from src.overview import Overview, prepare_evidence, summarize_overview
 from src.segmentation import Segment
 from src.step_sources import StepSource, prepare_intro, prepare_step_sources
+from src.transcript_cleaning import clean_utterance
 from src.transcript_quality import coding_transcript_status, is_readable_summary, readable_coverage
 from src.transcription import DEFAULT_WHISPER_BACKEND, WHISPER_MODEL, transcribe, whisper_backend, whisper_beam_size, whisper_model
 from src.youtube import download_youtube_audio, fetch_youtube_captions, youtube_watch_url
@@ -33,6 +34,20 @@ def load_cached_mbart(reference: str):
     from src.summarization import load_mbart
 
     return load_mbart(reference)
+
+
+def load_guide_model(reference: str):
+    from src.summarization import PUBLIC_MODEL
+
+    try:
+        tokenizer, model = load_cached_mbart(reference)
+    except (OSError, ValueError, KeyError, RuntimeError) as error:
+        if Path(reference).suffix.lower() != ".json":
+            raise
+        log.warning("Checkpoint eksperimen tidak dapat dimuat (%s). Memakai mBART bawaan.", type(error).__name__)
+        tokenizer, model = load_cached_mbart(PUBLIC_MODEL)
+        reference = f"{PUBLIC_MODEL} · checkpoint eksperimen tidak tersedia"
+    return tokenizer, model, model.identity if tokenizer is None else reference
 
 
 @dataclass(frozen=True)
@@ -61,6 +76,8 @@ class VisualProcessing:
     gemini_model: str = ""
     gemini_evidence: int = 0
     gemini_seconds: float = 0.0
+    gemini_context_changes: int = 0
+    gemini_code_examples: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -131,7 +148,13 @@ def select_guide_sources(segments: list[Segment], sources: list[StepSource] | No
         sources = prepare_local_outline(segments, recover_tutorial_sources(segments))
     else:
         sources = add_distinct_sources(sources, recover_tutorial_sources(segments))
-    return limit_tutorial_sources(sources)
+    selected = []
+    for source in limit_tutorial_sources(sources):
+        cleaned, _ = clean_utterance(source.text)
+        if source.required_clause and source.required_clause not in cleaned:
+            cleaned = source.text
+        selected.append(replace(source, text=cleaned))
+    return selected
 
 
 def summarize_segments(
@@ -151,7 +174,7 @@ def summarize_segments(
     if needs_model:
         progress(0.64, "Memuat model peringkasan…")
         try:
-            tokenizer, model = load_cached_mbart(reference)
+            tokenizer, model, reference = load_guide_model(reference)
         except (OSError, RuntimeError) as error:
             if isinstance(error, RuntimeError) and not any(
                 message in str(error).casefold() for message in ("out of memory", "not enough memory", "can't allocate memory")
@@ -165,8 +188,6 @@ def summarize_segments(
         tokenizer, model = None, None
         if any(source.text for source in sources):
             reference = "Aturan berbasis sumber"
-    if tokenizer is None and model is not None:
-        reference = model.identity
     steps = []
     for index, source in enumerate(sources):
         progress(0.66 + 0.27 * index / len(sources), f"Meringkas langkah {index + 1} dari {len(sources)}…")
@@ -199,7 +220,10 @@ def prepare_visual_sources(segments, video, visual_path, youtube_scratch, config
     if (visual_path is None and youtube_scratch is None) or os.getenv("VIDEO_OCR_ENABLED", "true").lower() in {"0", "off", "false", "no"}:
         return [], None, {}
     try:
-        from src.video_context import contextual_sources, read_with_gemini, scan_context, visual_branch_sources
+        from src.contextual_cleaning import contextual_parts, refine_context
+        from src.video_context import (
+            contextual_sources, draft_sources, read_with_gemini, scan_context, speech_drafts, visual_branch_sources,
+        )
         from src.video_ocr import download_video, tesseract_path
 
         engine = tesseract_path()
@@ -230,17 +254,29 @@ def prepare_visual_sources(segments, video, visual_path, youtube_scratch, config
         progress(0.53, "Mencocokkan kode dengan transkrip melalui Gemini…")
     gemini_started = perf_counter()
     vision = read_with_gemini(context["parts"], 2 if config else 0, config=config)
+    if config and not vision.get("failed"):
+        refinement = refine_context(context["parts"], vision["verified"], config)
+        vision["context_changes"] = len(refinement["changes"])
+        vision["requests"] = vision.get("requests", 0) + refinement["requests"]
+        if refinement.get("quota_exhausted"):
+            vision.update(quota_exhausted=True, status=refinement["status"])
+        elif refinement["changes"]:
+            context["parts"] = contextual_parts(context["parts"], refinement)
     gemini_seconds = perf_counter() - gemini_started
     if vision.get("quota_exhausted"):
         progress(0.56, GEMINI_QUOTA_NOTICE)
     observations = [] if vision.get("quota_exhausted") else vision["verified"]
     sources, count = contextual_sources(segments, context, observations)
+    if not sources and vision.get("context_changes") and not vision.get("quota_exhausted"):
+        sources = draft_sources(segments, speech_drafts(context["parts"]))
     note = "" if count else "Frame sudah dibaca. Belum ada kode yang bisa dikonfirmasi dan dipakai untuk menyusun langkah."
     visual = VisualProcessing(
         context["frame_count"], count, context["ocr_seconds"], note,
         gemini_model=vision.get("model", "") if vision.get("requests") else "",
         gemini_evidence=len(observations),
         gemini_seconds=gemini_seconds if vision.get("requests") else 0.0,
+        gemini_context_changes=vision.get("context_changes", 0) if not vision.get("quota_exhausted") else 0,
+        gemini_code_examples=tuple((item["code"], item["quote"]) for item in observations),
     )
     return sources, visual, vision
 
@@ -286,9 +322,7 @@ def finish_guide(
             raise MediaError("Narasi belum terdeteksi. Coba video dengan suara yang lebih jelas.")
         reference = checkpoint
         progress(0.66, "Membuat ringkasan keseluruhan…")
-        tokenizer, model = load_cached_mbart(reference)
-        if tokenizer is None:
-            reference = model.identity
+        tokenizer, model, reference = load_guide_model(reference)
         overview_result = summarize_overview(evidence, tokenizer, model)
         steps = []
     else:
@@ -307,7 +341,12 @@ def finish_guide(
         elif vision.get("failed"):
             preprocessing_note = vision["status"]
         if sources:
-            preprocessing = f"Gemini multimodal · {config.model} + OCR" if any(source.visual_quote for source in sources) else "OCR lokal"
+            if config and any(source.visual_quote for source in sources):
+                preprocessing = f"Gemini multimodal · {config.model} + OCR"
+            elif config and vision.get("context_changes"):
+                preprocessing = f"Praproses kontekstual Gemini · {config.model}"
+            else:
+                preprocessing = "OCR lokal"
         elif config and not vision.get("failed") and not vision.get("requests"):
             try:
                 progress(0.55, "Menyeleksi inti transkrip dengan Gemini…")

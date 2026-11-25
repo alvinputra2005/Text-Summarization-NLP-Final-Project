@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 
-from src.gemini_preprocessing import GeminiConfig, gemini_config, prepare_gemini_sources
+from src.gemini_preprocessing import GeminiConfig, gemini_config, prepare_gemini_sources, verified_excerpt
 from src.pipeline import finish_guide
 from src.segmentation import Segment
 from src.summarization import Summary
@@ -33,6 +33,24 @@ def response_with(*excerpts):
 
 
 class GeminiPreprocessingTest(unittest.TestCase):
+    def test_verified_excerpt_keeps_question_status_and_corrections(self):
+        for original, cleaned, accept in (
+            ("Lalu, apa ya, kita jalankan ulang fungsi input().",
+             "Lalu, kita jalankan ulang fungsi input().", True),
+            ("Apa yang terjadi kalau data kosong?", "Yang terjadi kalau data kosong.", False),
+            ("Apa yang terjadi kalau data kosong?", "Apa yang terjadi kalau data kosong.", False),
+            ("Status oke berarti permintaan berhasil.", "Status berarti permintaan berhasil.", False),
+            ("Pakai batas 4, eh, maksudnya 5.", "Pakai batas 4, maksudnya 5.", False),
+        ):
+            with self.subTest(original=original, cleaned=cleaned):
+                cue = Segment(1, 5, original)
+                item = {"start_id": 1, "end_id": 1, "quote": original, "cleaned_text": cleaned}
+                source = verified_excerpt(item, [(1, cue)])
+                self.assertEqual(source is not None, accept)
+                if source:
+                    self.assertEqual(source.text, cleaned)
+                    self.assertEqual(source.segment, cue)
+
     def test_accepts_ai_studio_authorization_key(self):
         key = "AQ.example_test-key"
         with patch.dict(os.environ, {"GEMINI_API_KEY": key}, clear=True), patch(

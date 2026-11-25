@@ -9,7 +9,9 @@ from urllib.parse import parse_qs, urlsplit
 
 from scripts.notebook_multimodal import load_transcript
 from scripts.notebook_video_summary import score_video
+from src.contextual_cleaning import contextual_parts, refine_context
 from src.evaluation import exact_code_details, normalize
+from src.gemini_preprocessing import GeminiError, gemini_config
 from src.segmentation import Segment
 from src.video_context import (
     MAX_POINTS, capture_parts, draft, enrich, probe_duration, read_with_gemini, speech_drafts,
@@ -47,7 +49,7 @@ def capture_transcript(video, transcript, url, whisper_checkpoint=None):
             for item in result["chunks"] for start, end in (item["timestamp"],)
             if start is not None and start < (end if end is not None else duration) and item["text"].strip()
         ]
-        whisper = f"openai/whisper-base adaptasi ({whisper_checkpoint.parent.name})"
+        whisper = f"Whisper sesudah pelatihan tambahan ({whisper_checkpoint.parent.name})"
         del asr
         cues, whisper, retry = select_transcript(cues, whisper, video, url)
     else:
@@ -77,7 +79,16 @@ def extract_visual(state, roi):
 
 def enrich_with_gemini(state, max_requests):
     started = perf_counter()
-    state["gemini"] = read_with_gemini(state["parts"], max_requests)
+    state.pop("context_cleaning", None)
+    reserved = int(max_requests > 1)
+    state["gemini"] = read_with_gemini(state["parts"], max_requests - reserved)
+    if reserved and not state["gemini"].get("failed"):
+        try:
+            config = gemini_config()
+        except GeminiError as error:
+            state["context_cleaning"] = {"status": str(error), "requests": 0, "changes": []}
+        else:
+            state["context_cleaning"] = refine_context(state["parts"], state["gemini"]["verified"], config)
     state["gemini"]["seconds"] = perf_counter() - started
     for part in state["parts"]:
         for frame in part["frames"]:
@@ -121,26 +132,32 @@ def evaluate(rows, reference):
     return scores
 
 
-def summarize(prepared, reference, mbart_weights=None, *, device="cpu"):
+def summarize(prepared, reference, mbart_weights=None, *, device="cpu", download=False):
     import torch
     from src.seq2seq_models import load_runner
 
     torch.set_num_threads(4)
-    runner = load_runner("mbart", dtype=torch.bfloat16, device=device)
+    dtype = torch.bfloat16
+    if device.startswith("cuda") and torch.cuda.get_device_capability(device)[0] < 8:
+        dtype = torch.float32
+    runner = load_runner("mbart", dtype=dtype, device=device, download=download)
     if mbart_weights:
         from scripts.notebook_training import load_mbart_weights
 
         load_mbart_weights(runner, mbart_weights)
     drafts = speech_drafts(prepared["parts"])
     variants = {"transcript": drafts, "ocr": enrich(drafts, prepared, [])}
-    if prepared["gemini"]["verified"]:
-        variants["gemini"] = enrich(drafts, prepared, prepared["gemini"]["verified"])
+    context_report = prepared.get("context_cleaning", {})
+    if prepared["gemini"]["verified"] or context_report.get("changes"):
+        context = {**prepared, "parts": contextual_parts(prepared["parts"], context_report)}
+        variants["gemini"] = enrich(speech_drafts(context["parts"]), context, prepared["gemini"]["verified"])
     outputs = {}
     for name, items in variants.items():
         started = perf_counter()
         rows = render(items, runner)
         outputs[name] = {"rows": rows, "seconds": perf_counter() - started, "scores": evaluate(rows, reference)}
-    return {"variants": outputs, "checkpoint": runner.identity, "precision": f"BF16 · {device}",
+    precision = "BF16" if dtype == torch.bfloat16 else "FP32"
+    return {"variants": outputs, "checkpoint": runner.identity, "precision": f"{precision} · {device}",
             "reference": reference["title"] if reference else None}
 
 
@@ -152,6 +169,8 @@ def main():
     parser.add_argument("--transcript", type=Path)
     parser.add_argument("--whisper-checkpoint", type=Path)
     parser.add_argument("--mbart-weights", type=Path)
+    parser.add_argument("--reference", type=Path, help="JSON acuan manual untuk video yang sedang diuji.")
+    parser.add_argument("--download", action="store_true", help="Unduh checkpoint mBART yang belum tersimpan.")
     parser.add_argument("--device", choices=("cpu", "cuda:0"), default="cpu")
     parser.add_argument("--part-seconds", type=int, default=55)
     parser.add_argument("--roi", type=float, nargs=4, default=(0.225, 0.115, 0.61, 0.90))
@@ -191,7 +210,12 @@ def main():
             manifest = Path("samples/notebook_video_holdout.json")
             references = json.loads(manifest.read_text(encoding="utf-8"))
             reference = next((item for item in references if item["id"] == video_id), None)
-            result = summarize(result, reference, options.mbart_weights, device=options.device)
+            if options.reference:
+                reference = json.loads(options.reference.read_text(encoding="utf-8"))
+                if not isinstance(reference, dict) or not reference.get("title") or not reference.get("facts"):
+                    parser.error("Acuan harus berisi title dan facts seperti salah satu entri manifest video.")
+            result = summarize(result, reference, options.mbart_weights, device=options.device,
+                               download=options.download)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
 
