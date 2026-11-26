@@ -62,6 +62,8 @@ class Seq2SeqRunner:
         self.model = model
         self.source_tokens = source_tokens
         self.target_tokens = target_tokens
+        self.generation_tokens = None
+        self.generation_beams = 2
         self.checkpoint = "base"
         self.summary_language = INDONESIAN
 
@@ -120,7 +122,8 @@ class Seq2SeqRunner:
                 "forced_bos_token_id": self.tokenizer.bos_token_id,
             }
         output = self.model.generate(
-            **inputs, **settings, max_new_tokens=self.target_tokens, num_beams=2,
+            **inputs, **settings, max_new_tokens=self.generation_tokens or self.target_tokens,
+            num_beams=self.generation_beams,
             do_sample=False, no_repeat_ngram_size=3, return_dict_in_generate=False,
         )
         return " ".join(self.tokenizer.decode(output[0].tolist(), skip_special_tokens=True).split())
